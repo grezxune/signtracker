@@ -193,7 +193,7 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
                             knownSignId: sign._id, 
                             confidence: e.target.value as any 
                           })}
-                          className="text-sm border border-gray-300 rounded px-2 py-1"
+                          className="text-sm border border-gray-300 rounded px-2 py-1 text-gray-900 bg-white"
                         >
                           <option value="learning">Learning</option>
                           <option value="familiar">Familiar</option>
@@ -224,12 +224,12 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search signs..."
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-gray-900 bg-white"
                 />
                 <select
                   value={selectedCategory}
                   onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-gray-900 bg-white"
                 >
                   <option value="all">All Categories</option>
                   {ASL_CATEGORIES.map((cat) => (
@@ -304,7 +304,7 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
                     value={shareEmail}
                     onChange={(e) => setShareEmail(e.target.value)}
                     placeholder="spouse@example.com"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-gray-900 bg-white"
                     required
                   />
                 </div>
