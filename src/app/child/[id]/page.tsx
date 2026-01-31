@@ -14,7 +14,7 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
   const childId = id as Id<"children">;
   const { data: session, status } = useSession();
   const router = useRouter();
-  const email = session?.user?.email;
+  const email = session?.user?.email ?? undefined;
   
   const child = useQuery(api.children.get, { childId, email });
   const stats = useQuery(api.signs.getStats, { childId, email });

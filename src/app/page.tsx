@@ -44,7 +44,7 @@ export default function Home() {
 }
 
 function Dashboard({ session }: { session: any }) {
-  const email = session.user?.email;
+  const email = session.user?.email ?? undefined;
   const children = useQuery(api.children.list, { email }) || [];
   const createChild = useMutation(api.children.create);
   const [showAdd, setShowAdd] = useState(false);
