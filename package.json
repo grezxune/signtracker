@@ -9,9 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@convex-dev/auth": "^0.0.90",
+    "@auth/core": "^0.41.0",
     "convex": "^1.31.7",
     "next": "16.1.6",
+    "next-auth": "^5.0.0-beta.30",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },

@@ -1,9 +1,16 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { authTables } from "@convex-dev/auth/server";
 
 export default defineSchema({
-  ...authTables,
+  // Users from NextAuth
+  users: defineTable({
+    email: v.string(),
+    name: v.optional(v.string()),
+    image: v.optional(v.string()),
+    emailVerified: v.optional(v.boolean()),
+    provider: v.optional(v.string()), // google, github, resend
+    createdAt: v.number(),
+  }).index("by_email", ["email"]),
   
   // Children - can be shared between users
   children: defineTable({

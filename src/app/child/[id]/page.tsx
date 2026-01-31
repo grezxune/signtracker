@@ -1,17 +1,23 @@
 "use client";
 
+import { useSession } from "next-auth/react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { useState, use } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ASL_SIGNS, ASL_CATEGORIES } from "@/lib/asl-dictionary";
 
 export default function ChildPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const childId = id as Id<"children">;
-  const child = useQuery(api.children.get, { childId });
-  const stats = useQuery(api.signs.getStats, { childId });
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const email = session?.user?.email;
+  
+  const child = useQuery(api.children.get, { childId, email });
+  const stats = useQuery(api.signs.getStats, { childId, email });
   const addSign = useMutation(api.signs.addKnown);
   const updateSign = useMutation(api.signs.updateKnown);
   const removeSign = useMutation(api.signs.removeKnown);
@@ -23,6 +29,19 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
   const [shareEmail, setShareEmail] = useState("");
   const [shareError, setShareError] = useState("");
   const [shareSuccess, setShareSuccess] = useState("");
+  
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    );
+  }
+  
+  if (!session) {
+    router.push("/auth/signin");
+    return null;
+  }
   
   if (child === undefined) {
     return (
@@ -54,7 +73,9 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
   });
   
   const handleAddSign = async (sign: typeof ASL_SIGNS[0]) => {
+    if (!email) return;
     await addSign({
+      email,
       childId,
       signId: sign.id,
       signName: sign.name,
@@ -64,11 +85,12 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
   
   const handleShare = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email) return;
     setShareError("");
     setShareSuccess("");
     
     try {
-      await shareChild({ childId, email: shareEmail });
+      await shareChild({ email, childId, shareWithEmail: shareEmail });
       setShareSuccess(`Shared with ${shareEmail}!`);
       setShareEmail("");
     } catch (err: any) {
@@ -189,7 +211,8 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
                       <div className="flex items-center gap-2">
                         <select
                           value={sign.confidence}
-                          onChange={(e) => updateSign({ 
+                          onChange={(e) => email && updateSign({ 
+                            email,
                             knownSignId: sign._id, 
                             confidence: e.target.value as any 
                           })}
@@ -200,7 +223,7 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
                           <option value="mastered">Mastered</option>
                         </select>
                         <button
-                          onClick={() => removeSign({ knownSignId: sign._id })}
+                          onClick={() => email && removeSign({ email, knownSignId: sign._id })}
                           className="text-red-500 hover:text-red-700 text-sm"
                         >
                           Remove

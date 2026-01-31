@@ -1,19 +1,30 @@
 import { v } from "convex/values";
-import { mutation, query, action } from "./_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { api } from "./_generated/api";
+import { mutation, query } from "./_generated/server";
+
+// Helper to get user by email
+async function getUserByEmail(ctx: any, email: string) {
+  return await ctx.db
+    .query("users")
+    .withIndex("by_email", (q: any) => q.eq("email", email))
+    .first();
+}
 
 // Get known signs for a child
 export const listKnown = query({
-  args: { childId: v.id("children") },
-  handler: async (ctx, { childId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+  args: { 
+    childId: v.id("children"),
+    email: v.optional(v.string()),
+  },
+  handler: async (ctx, { childId, email }) => {
+    if (!email) return [];
+    
+    const user = await getUserByEmail(ctx, email);
+    if (!user) return [];
     
     // Check access
     const access = await ctx.db
       .query("childAccess")
-      .withIndex("by_user_child", (q) => q.eq("userId", userId).eq("childId", childId))
+      .withIndex("by_user_child", (q) => q.eq("userId", user._id).eq("childId", childId))
       .first();
     
     if (!access) return [];
@@ -30,6 +41,7 @@ export const listKnown = query({
 // Add a sign to known list
 export const addKnown = mutation({
   args: {
+    email: v.string(),
     childId: v.id("children"),
     signId: v.string(),
     signName: v.string(),
@@ -41,14 +53,14 @@ export const addKnown = mutation({
       v.literal("mastered")
     )),
   },
-  handler: async (ctx, { childId, signId, signName, signCategory, notes, confidence }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+  handler: async (ctx, { email, childId, signId, signName, signCategory, notes, confidence }) => {
+    const user = await getUserByEmail(ctx, email);
+    if (!user) throw new Error("User not found");
     
     // Check access
     const access = await ctx.db
       .query("childAccess")
-      .withIndex("by_user_child", (q) => q.eq("userId", userId).eq("childId", childId))
+      .withIndex("by_user_child", (q) => q.eq("userId", user._id).eq("childId", childId))
       .first();
     
     if (!access) throw new Error("Access denied");
@@ -71,7 +83,7 @@ export const addKnown = mutation({
       learnedAt: Date.now(),
       notes,
       confidence: confidence || "learning",
-      addedBy: userId,
+      addedBy: user._id,
     });
   },
 });
@@ -79,6 +91,7 @@ export const addKnown = mutation({
 // Update a known sign
 export const updateKnown = mutation({
   args: {
+    email: v.string(),
     knownSignId: v.id("knownSigns"),
     notes: v.optional(v.string()),
     confidence: v.optional(v.union(
@@ -87,9 +100,9 @@ export const updateKnown = mutation({
       v.literal("mastered")
     )),
   },
-  handler: async (ctx, { knownSignId, notes, confidence }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+  handler: async (ctx, { email, knownSignId, notes, confidence }) => {
+    const user = await getUserByEmail(ctx, email);
+    if (!user) throw new Error("User not found");
     
     const knownSign = await ctx.db.get(knownSignId);
     if (!knownSign) throw new Error("Sign not found");
@@ -97,7 +110,7 @@ export const updateKnown = mutation({
     // Check access
     const access = await ctx.db
       .query("childAccess")
-      .withIndex("by_user_child", (q) => q.eq("userId", userId).eq("childId", knownSign.childId))
+      .withIndex("by_user_child", (q) => q.eq("userId", user._id).eq("childId", knownSign.childId))
       .first();
     
     if (!access) throw new Error("Access denied");
@@ -112,10 +125,13 @@ export const updateKnown = mutation({
 
 // Remove a sign from known list
 export const removeKnown = mutation({
-  args: { knownSignId: v.id("knownSigns") },
-  handler: async (ctx, { knownSignId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+  args: { 
+    email: v.string(),
+    knownSignId: v.id("knownSigns"),
+  },
+  handler: async (ctx, { email, knownSignId }) => {
+    const user = await getUserByEmail(ctx, email);
+    if (!user) throw new Error("User not found");
     
     const knownSign = await ctx.db.get(knownSignId);
     if (!knownSign) throw new Error("Sign not found");
@@ -123,7 +139,7 @@ export const removeKnown = mutation({
     // Check access
     const access = await ctx.db
       .query("childAccess")
-      .withIndex("by_user_child", (q) => q.eq("userId", userId).eq("childId", knownSign.childId))
+      .withIndex("by_user_child", (q) => q.eq("userId", user._id).eq("childId", knownSign.childId))
       .first();
     
     if (!access) throw new Error("Access denied");
@@ -135,12 +151,12 @@ export const removeKnown = mutation({
 // Check if a sign is known
 export const isKnown = query({
   args: { 
+    email: v.optional(v.string()),
     childId: v.id("children"),
     signId: v.string(),
   },
-  handler: async (ctx, { childId, signId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return false;
+  handler: async (ctx, { email, childId, signId }) => {
+    if (!email) return false;
     
     const existing = await ctx.db
       .query("knownSigns")
@@ -153,14 +169,19 @@ export const isKnown = query({
 
 // Get sign statistics for a child
 export const getStats = query({
-  args: { childId: v.id("children") },
-  handler: async (ctx, { childId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
+  args: { 
+    childId: v.id("children"),
+    email: v.optional(v.string()),
+  },
+  handler: async (ctx, { childId, email }) => {
+    if (!email) return null;
+    
+    const user = await getUserByEmail(ctx, email);
+    if (!user) return null;
     
     const access = await ctx.db
       .query("childAccess")
-      .withIndex("by_user_child", (q) => q.eq("userId", userId).eq("childId", childId))
+      .withIndex("by_user_child", (q) => q.eq("userId", user._id).eq("childId", childId))
       .first();
     
     if (!access) return null;

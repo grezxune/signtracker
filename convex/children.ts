@@ -1,17 +1,26 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
+
+// Helper to get user by email
+async function getUserByEmail(ctx: any, email: string) {
+  return await ctx.db
+    .query("users")
+    .withIndex("by_email", (q: any) => q.eq("email", email))
+    .first();
+}
 
 // Get all children the user has access to
 export const list = query({
-  args: {},
-  handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+  args: { email: v.optional(v.string()) },
+  handler: async (ctx, { email }) => {
+    if (!email) return [];
+    
+    const user = await getUserByEmail(ctx, email);
+    if (!user) return [];
     
     const access = await ctx.db
       .query("childAccess")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect();
     
     const children = await Promise.all(
@@ -39,15 +48,20 @@ export const list = query({
 
 // Get a single child with their known signs
 export const get = query({
-  args: { childId: v.id("children") },
-  handler: async (ctx, { childId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
+  args: { 
+    childId: v.id("children"),
+    email: v.optional(v.string()),
+  },
+  handler: async (ctx, { childId, email }) => {
+    if (!email) return null;
+    
+    const user = await getUserByEmail(ctx, email);
+    if (!user) return null;
     
     // Check access
     const access = await ctx.db
       .query("childAccess")
-      .withIndex("by_user_child", (q) => q.eq("userId", userId).eq("childId", childId))
+      .withIndex("by_user_child", (q) => q.eq("userId", user._id).eq("childId", childId))
       .first();
     
     if (!access) return null;
@@ -68,10 +82,10 @@ export const get = query({
     
     const sharedWith = await Promise.all(
       allAccess
-        .filter(a => a.userId !== userId)
+        .filter(a => a.userId !== user._id)
         .map(async (a) => {
-          const user = await ctx.db.get(a.userId);
-          return user ? { id: user._id, email: user.email, role: a.role } : null;
+          const sharedUser = await ctx.db.get(a.userId);
+          return sharedUser ? { id: sharedUser._id, email: sharedUser.email, role: a.role } : null;
         })
     );
     
@@ -87,23 +101,24 @@ export const get = query({
 // Create a new child
 export const create = mutation({
   args: {
+    email: v.string(),
     name: v.string(),
     birthDate: v.optional(v.string()),
   },
-  handler: async (ctx, { name, birthDate }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+  handler: async (ctx, { email, name, birthDate }) => {
+    const user = await getUserByEmail(ctx, email);
+    if (!user) throw new Error("User not found");
     
     const childId = await ctx.db.insert("children", {
       name,
       birthDate,
-      createdBy: userId,
+      createdBy: user._id,
     });
     
     // Give owner access
     await ctx.db.insert("childAccess", {
       childId,
-      userId,
+      userId: user._id,
       role: "owner",
     });
     
@@ -114,17 +129,18 @@ export const create = mutation({
 // Update a child
 export const update = mutation({
   args: {
+    email: v.string(),
     childId: v.id("children"),
     name: v.optional(v.string()),
     birthDate: v.optional(v.string()),
   },
-  handler: async (ctx, { childId, name, birthDate }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+  handler: async (ctx, { email, childId, name, birthDate }) => {
+    const user = await getUserByEmail(ctx, email);
+    if (!user) throw new Error("User not found");
     
     const access = await ctx.db
       .query("childAccess")
-      .withIndex("by_user_child", (q) => q.eq("userId", userId).eq("childId", childId))
+      .withIndex("by_user_child", (q) => q.eq("userId", user._id).eq("childId", childId))
       .first();
     
     if (!access) throw new Error("Access denied");
@@ -140,17 +156,18 @@ export const update = mutation({
 // Share a child with another user by email
 export const share = mutation({
   args: {
-    childId: v.id("children"),
     email: v.string(),
+    childId: v.id("children"),
+    shareWithEmail: v.string(),
   },
-  handler: async (ctx, { childId, email }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+  handler: async (ctx, { email, childId, shareWithEmail }) => {
+    const user = await getUserByEmail(ctx, email);
+    if (!user) throw new Error("User not found");
     
     // Check owner access
     const access = await ctx.db
       .query("childAccess")
-      .withIndex("by_user_child", (q) => q.eq("userId", userId).eq("childId", childId))
+      .withIndex("by_user_child", (q) => q.eq("userId", user._id).eq("childId", childId))
       .first();
     
     if (!access || access.role !== "owner") {
@@ -158,10 +175,7 @@ export const share = mutation({
     }
     
     // Find user by email
-    const targetUser = await ctx.db
-      .query("users")
-      .filter((q) => q.eq(q.field("email"), email))
-      .first();
+    const targetUser = await getUserByEmail(ctx, shareWithEmail);
     
     if (!targetUser) {
       throw new Error("User not found. They need to create an account first.");
@@ -188,17 +202,18 @@ export const share = mutation({
 // Remove sharing
 export const unshare = mutation({
   args: {
+    email: v.string(),
     childId: v.id("children"),
-    userId: v.id("users"),
+    targetUserId: v.id("users"),
   },
-  handler: async (ctx, { childId, userId: targetUserId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+  handler: async (ctx, { email, childId, targetUserId }) => {
+    const user = await getUserByEmail(ctx, email);
+    if (!user) throw new Error("User not found");
     
     // Check owner access
     const access = await ctx.db
       .query("childAccess")
-      .withIndex("by_user_child", (q) => q.eq("userId", userId).eq("childId", childId))
+      .withIndex("by_user_child", (q) => q.eq("userId", user._id).eq("childId", childId))
       .first();
     
     if (!access || access.role !== "owner") {
