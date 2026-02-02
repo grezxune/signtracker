@@ -110,7 +110,7 @@ export const sendEmail = internalAction({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          from: "SignTracker <noreply@signtracker.tommytreb.com>",
+          from: "SignTracker <signtracker@tommytreb.com>",
           to: email.to,
           subject: email.subject,
           html: email.html,
