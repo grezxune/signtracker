@@ -10,10 +10,12 @@ export const getOrCreate = mutation({
     provider: v.optional(v.string()),
   },
   handler: async (ctx, { email, name, image, provider }) => {
+    const normalizedEmail = email.toLowerCase();
+    
     // Check if user exists
     const existing = await ctx.db
       .query("users")
-      .withIndex("by_email", (q) => q.eq("email", email))
+      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
       .first();
     
     if (existing) {
@@ -28,14 +30,38 @@ export const getOrCreate = mutation({
     }
     
     // Create new user
-    return await ctx.db.insert("users", {
-      email,
+    const userId = await ctx.db.insert("users", {
+      email: normalizedEmail,
       name,
       image,
       provider,
       emailVerified: true, // Verified via OAuth or magic link
       createdAt: Date.now(),
     });
+    
+    // Check for pending invites and grant access
+    const pendingInvites = await ctx.db
+      .query("invites")
+      .withIndex("by_email", (q) => q.eq("invitedEmail", normalizedEmail))
+      .filter((q) => q.eq(q.field("status"), "pending"))
+      .collect();
+    
+    for (const invite of pendingInvites) {
+      // Grant access to the child
+      await ctx.db.insert("childAccess", {
+        childId: invite.childId,
+        userId: userId,
+        role: invite.role,
+      });
+      
+      // Mark invite as accepted
+      await ctx.db.patch(invite._id, {
+        status: "accepted",
+        acceptedAt: Date.now(),
+      });
+    }
+    
+    return userId;
   },
 });
 
@@ -60,5 +86,33 @@ export const current = query({
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", email))
       .first();
+  },
+});
+
+// Bootstrap: Set first super_user (only works if no super_users exist)
+export const bootstrapSuperUser = mutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    // Check if any super_user already exists
+    const allUsers = await ctx.db.query("users").collect();
+    const existingSuperUser = allUsers.find(u => u.role === "super_user");
+    
+    if (existingSuperUser) {
+      throw new Error("A super_user already exists. Use setUserRole instead.");
+    }
+    
+    // Find the user
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email.toLowerCase()))
+      .first();
+    
+    if (!user) {
+      throw new Error("User not found");
+    }
+    
+    await ctx.db.patch(user._id, { role: "super_user" });
+    
+    return { success: true, email };
   },
 });

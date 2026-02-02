@@ -72,6 +72,12 @@ function Dashboard({ session }: { session: any }) {
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-indigo-600">🤟 SignTracker</h1>
           <div className="flex items-center gap-4">
+            <Link
+              href="/dictionary"
+              className="text-indigo-600 hover:text-indigo-800 font-medium text-sm"
+            >
+              📚 Dictionary
+            </Link>
             <div className="flex items-center gap-2">
               {session.user?.image && (
                 <img 

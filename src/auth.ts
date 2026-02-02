@@ -1,6 +1,5 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
-import Resend from "next-auth/providers/resend";
 import type { NextAuthConfig } from "next-auth";
 
 export const authConfig: NextAuthConfig = {
@@ -9,10 +8,8 @@ export const authConfig: NextAuthConfig = {
       clientId: process.env.AUTH_GOOGLE_ID!,
       clientSecret: process.env.AUTH_GOOGLE_SECRET!,
     }),
-    Resend({
-      apiKey: process.env.AUTH_RESEND_KEY!,
-      from: "SignTracker <noreply@signtracker.app>",
-    }),
+    // Note: Magic links require @convex-dev/auth for Convex projects
+    // Invite emails are handled separately via the email queue system
   ],
   callbacks: {
     async jwt({ token, user, account }) {
