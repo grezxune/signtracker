@@ -668,17 +668,23 @@ export const setUserRole = mutation({
   },
 });
 
-// Scrape GIF URL from Lifeprint page
-export const scrapeGifUrl = internalAction({
+// Media result from scraping
+type MediaResult = {
+  type: "gif" | "video" | "image" | "none";
+  url: string | null;
+};
+
+// Scrape media (GIF, video, or image) from Lifeprint page
+export const scrapeMedia = internalAction({
   args: { lifeprintUrl: v.string() },
-  handler: async (_, { lifeprintUrl }): Promise<string | null> => {
+  handler: async (_, { lifeprintUrl }): Promise<MediaResult> => {
     try {
       const response = await fetch(lifeprintUrl);
-      if (!response.ok) return null;
+      if (!response.ok) return { type: "none", url: null };
       
       const html = await response.text();
       
-      // Look for GIF patterns - prioritize gifs/ folder, then gifs-animated/
+      // Priority 1: Animated GIFs from gifs/ or gifs-animated/ folders
       const gifPatterns = [
         /src="\.\.\/\.\.\/gifs\/[^"]+\.gif"/gi,
         /src="\.\.\/\.\.\/gifs-animated\/[^"]+\.gif"/gi,
@@ -687,56 +693,104 @@ export const scrapeGifUrl = internalAction({
       for (const pattern of gifPatterns) {
         const matches = html.match(pattern);
         if (matches && matches.length > 0) {
-          // Extract the path and convert to absolute URL
-          const match = matches[0];
-          const pathMatch = match.match(/src="([^"]+)"/i);
+          const pathMatch = matches[0].match(/src="([^"]+)"/i);
           if (pathMatch) {
-            const relativePath = pathMatch[1];
-            // Convert ../../gifs/x/sign.gif to absolute URL
-            const absoluteUrl = relativePath
-              .replace("../../", "https://www.lifeprint.com/asl101/");
-            return absoluteUrl;
+            const absoluteUrl = pathMatch[1].replace("../../", "https://www.lifeprint.com/asl101/");
+            return { type: "gif", url: absoluteUrl };
           }
         }
       }
       
-      return null;
+      // Priority 2: MP4 videos
+      const videoMatch = html.match(/src="\.\.\/\.\.\/videos\/[^"]+\.mp4"/i);
+      if (videoMatch) {
+        const pathMatch = videoMatch[0].match(/src="([^"]+)"/i);
+        if (pathMatch) {
+          const absoluteUrl = pathMatch[1].replace("../../", "https://www.lifeprint.com/asl101/");
+          return { type: "video", url: absoluteUrl };
+        }
+      }
+      
+      // Priority 3: Static images from images-signs/ (as fallback)
+      const imageMatch = html.match(/src="\.\.\/\.\.\/images-signs\/[^"]+\.gif"/i);
+      if (imageMatch) {
+        const pathMatch = imageMatch[0].match(/src="([^"]+)"/i);
+        if (pathMatch) {
+          const absoluteUrl = pathMatch[1].replace("../../", "https://www.lifeprint.com/asl101/");
+          return { type: "image", url: absoluteUrl };
+        }
+      }
+      
+      return { type: "none", url: null };
     } catch (error) {
-      console.error("Error scraping GIF:", error);
-      return null;
+      console.error("Error scraping media:", error);
+      return { type: "none", url: null };
     }
   },
 });
 
-// Fetch and cache GIF URL for a sign
-export const fetchGifForSign = action({
+// Legacy: Scrape GIF URL only (for backwards compat)
+export const scrapeGifUrl = internalAction({
+  args: { lifeprintUrl: v.string() },
+  handler: async (ctx, { lifeprintUrl }): Promise<string | null> => {
+    const result = await ctx.runAction(internal.signLookup.scrapeMedia, { lifeprintUrl });
+    return result.type === "gif" ? result.url : null;
+  },
+});
+
+// Media info returned to frontend
+type MediaInfo = {
+  type: "gif" | "video" | "image" | "none";
+  url: string | null;
+};
+
+// Fetch and cache media for a sign
+export const fetchMediaForSign = action({
   args: { signId: v.string() },
-  handler: async (ctx, { signId }): Promise<string | null> => {
+  handler: async (ctx, { signId }): Promise<MediaInfo> => {
     // Get the sign from dictionary
     const sign = await ctx.runQuery(internal.signLookup.getSignByIdInternal, { signId });
     
-    if (!sign) return null;
+    if (!sign) return { type: "none", url: null };
     
-    // If already has a GIF URL, return it
-    if (sign.gifUrl) return sign.gifUrl;
-    
-    // If no lifeprint URL, can't scrape
-    if (!sign.lifeprintUrl) return null;
-    
-    // Scrape the GIF URL
-    const gifUrl = await ctx.runAction(internal.signLookup.scrapeGifUrl, { 
-      lifeprintUrl: sign.lifeprintUrl 
-    });
-    
-    // Cache the result (even if null, we store undefined to avoid re-scraping)
-    if (gifUrl) {
-      await ctx.runMutation(internal.signLookup.updateSignGif, { 
-        signId, 
-        gifUrl 
-      });
+    // If already has media cached, return it
+    if (sign.mediaType) {
+      if (sign.mediaType === "gif" && sign.gifUrl) return { type: "gif", url: sign.gifUrl };
+      if (sign.mediaType === "video" && sign.videoUrl) return { type: "video", url: sign.videoUrl };
+      if (sign.mediaType === "image" && sign.imageUrl) return { type: "image", url: sign.imageUrl };
+      if (sign.mediaType === "none") return { type: "none", url: null };
     }
     
-    return gifUrl;
+    // Legacy: check gifUrl without mediaType
+    if (sign.gifUrl) return { type: "gif", url: sign.gifUrl };
+    
+    // If no lifeprint URL, can't scrape
+    if (!sign.lifeprintUrl) return { type: "none", url: null };
+    
+    // Scrape the media
+    const media = await ctx.runAction(internal.signLookup.scrapeMedia, { 
+      lifeprintUrl: sign.lifeprintUrl 
+    }) as MediaResult;
+    
+    // Cache the result
+    await ctx.runMutation(internal.signLookup.updateSignMedia, { 
+      signId, 
+      mediaType: media.type,
+      gifUrl: media.type === "gif" && media.url ? media.url : undefined,
+      videoUrl: media.type === "video" && media.url ? media.url : undefined,
+      imageUrl: media.type === "image" && media.url ? media.url : undefined,
+    });
+    
+    return media;
+  },
+});
+
+// Legacy: Fetch GIF only (for backwards compat)
+export const fetchGifForSign = action({
+  args: { signId: v.string() },
+  handler: async (ctx, { signId }): Promise<string | null> => {
+    const media = await ctx.runAction(internal.signLookup.fetchMediaForSignInternal, { signId }) as MediaInfo;
+    return media.type === "gif" ? media.url : null;
   },
 });
 
@@ -751,7 +805,32 @@ export const getSignByIdInternal = internalQuery({
   },
 });
 
-// Internal mutation to update sign GIF URL
+// Internal mutation to update sign media
+export const updateSignMedia = internalMutation({
+  args: { 
+    signId: v.string(),
+    mediaType: v.union(v.literal("gif"), v.literal("video"), v.literal("image"), v.literal("none")),
+    gifUrl: v.optional(v.string()),
+    videoUrl: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+  },
+  handler: async (ctx, { signId, mediaType, gifUrl, videoUrl, imageUrl }) => {
+    const sign = await ctx.db
+      .query("savedSigns")
+      .withIndex("by_sign_id", (q) => q.eq("signId", signId))
+      .first();
+    
+    if (sign) {
+      const updates: Record<string, any> = { mediaType };
+      if (gifUrl) updates.gifUrl = gifUrl;
+      if (videoUrl) updates.videoUrl = videoUrl;
+      if (imageUrl) updates.imageUrl = imageUrl;
+      await ctx.db.patch(sign._id, updates);
+    }
+  },
+});
+
+// Legacy: update GIF only
 export const updateSignGif = internalMutation({
   args: { 
     signId: v.string(),
@@ -764,7 +843,7 @@ export const updateSignGif = internalMutation({
       .first();
     
     if (sign) {
-      await ctx.db.patch(sign._id, { gifUrl });
+      await ctx.db.patch(sign._id, { gifUrl, mediaType: "gif" as const });
     }
   },
 });
@@ -791,23 +870,45 @@ export const fetchGifsForSigns = action({
 });
 
 // Internal version for batch processing
+export const fetchMediaForSignInternal = internalAction({
+  args: { signId: v.string() },
+  handler: async (ctx, { signId }): Promise<MediaInfo> => {
+    const sign = await ctx.runQuery(internal.signLookup.getSignByIdInternal, { signId });
+    
+    if (!sign) return { type: "none", url: null };
+    
+    // Check cached media
+    if (sign.mediaType) {
+      if (sign.mediaType === "gif" && sign.gifUrl) return { type: "gif", url: sign.gifUrl };
+      if (sign.mediaType === "video" && sign.videoUrl) return { type: "video", url: sign.videoUrl };
+      if (sign.mediaType === "image" && sign.imageUrl) return { type: "image", url: sign.imageUrl };
+      if (sign.mediaType === "none") return { type: "none", url: null };
+    }
+    
+    if (sign.gifUrl) return { type: "gif", url: sign.gifUrl };
+    if (!sign.lifeprintUrl) return { type: "none", url: null };
+    
+    const media = await ctx.runAction(internal.signLookup.scrapeMedia, { 
+      lifeprintUrl: sign.lifeprintUrl 
+    }) as MediaResult;
+    
+    await ctx.runMutation(internal.signLookup.updateSignMedia, { 
+      signId, 
+      mediaType: media.type,
+      gifUrl: media.type === "gif" && media.url ? media.url : undefined,
+      videoUrl: media.type === "video" && media.url ? media.url : undefined,
+      imageUrl: media.type === "image" && media.url ? media.url : undefined,
+    });
+    
+    return media;
+  },
+});
+
+// Legacy: for backwards compat
 export const fetchGifForSignInternal = internalAction({
   args: { signId: v.string() },
   handler: async (ctx, { signId }): Promise<string | null> => {
-    const sign = await ctx.runQuery(internal.signLookup.getSignByIdInternal, { signId });
-    
-    if (!sign) return null;
-    if (sign.gifUrl) return sign.gifUrl;
-    if (!sign.lifeprintUrl) return null;
-    
-    const gifUrl = await ctx.runAction(internal.signLookup.scrapeGifUrl, { 
-      lifeprintUrl: sign.lifeprintUrl 
-    });
-    
-    if (gifUrl) {
-      await ctx.runMutation(internal.signLookup.updateSignGif, { signId, gifUrl });
-    }
-    
-    return gifUrl;
+    const media = await ctx.runAction(internal.signLookup.fetchMediaForSignInternal, { signId }) as MediaInfo;
+    return media.type === "gif" ? media.url : null;
   },
 });

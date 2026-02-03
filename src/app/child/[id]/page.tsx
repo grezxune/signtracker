@@ -30,7 +30,7 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
   const shareChild = useMutation(api.children.share);
   const addKnownSign = useMutation(api.signs.addKnown);
   const quickAddSign = useAction(api.signLookup.quickAdd);
-  const fetchGifForSign = useAction(api.signLookup.fetchGifForSign);
+  const fetchMediaForSign = useAction(api.signLookup.fetchMediaForSign);
   
   const [activeTab, setActiveTab] = useState<"signs" | "share">("signs");
   const [shareEmail, setShareEmail] = useState("");
@@ -386,7 +386,7 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
                           onToggleFavorite={toggleFavorite}
                           onUpdateAlias={updateAlias}
                           onUpdateSignName={updateSignName}
-                          onFetchGif={(signId) => fetchGifForSign({ signId })}
+                          onFetchMedia={(signId) => fetchMediaForSign({ signId })}
                         />
                       ))}
                     </div>
@@ -417,7 +417,7 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
                             onToggleFavorite={toggleFavorite}
                             onUpdateAlias={updateAlias}
                             onUpdateSignName={updateSignName}
-                            onFetchGif={(signId) => fetchGifForSign({ signId })}
+                            onFetchMedia={(signId) => fetchMediaForSign({ signId })}
                           />
                         ))}
                       </div>
@@ -532,7 +532,7 @@ function SignCard({
   onToggleFavorite,
   onUpdateAlias,
   onUpdateSignName,
-  onFetchGif,
+  onFetchMedia,
 }: { 
   sign: any; 
   email: string | undefined; 
@@ -541,34 +541,38 @@ function SignCard({
   onToggleFavorite: any;
   onUpdateAlias: any;
   onUpdateSignName: any;
-  onFetchGif: (signId: string) => Promise<string | null>;
+  onFetchMedia: (signId: string) => Promise<{ type: string; url: string | null }>;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editAlias, setEditAlias] = useState(sign.alias || "");
   const [editSignName, setEditSignName] = useState(sign.signName || "");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [showGif, setShowGif] = useState(false);
-  const [gifUrl, setGifUrl] = useState<string | null>(sign.gifUrl || null);
-  const [loadingGif, setLoadingGif] = useState(false);
+  const [showMedia, setShowMedia] = useState(false);
+  const [media, setMedia] = useState<{ type: string; url: string | null } | null>(
+    sign.gifUrl ? { type: "gif", url: sign.gifUrl } :
+    sign.videoUrl ? { type: "video", url: sign.videoUrl } :
+    sign.imageUrl ? { type: "image", url: sign.imageUrl } : null
+  );
+  const [loadingMedia, setLoadingMedia] = useState(false);
   
   // Generate Lifeprint URL based on original signId (dictionary reference)
   const lifeprintUrl = sign.lifeprintUrl || `https://www.lifeprint.com/asl101/pages-signs/${sign.signId.charAt(0).toLowerCase()}/${sign.signId.toLowerCase().replace(/\s+/g, "-")}.htm`;
   
-  // Fetch GIF when user wants to see it
-  const handleShowGif = async () => {
-    if (gifUrl) {
-      setShowGif(!showGif);
+  // Fetch media when user wants to see it
+  const handleShowMedia = async () => {
+    if (media?.url) {
+      setShowMedia(!showMedia);
       return;
     }
     
-    setLoadingGif(true);
+    setLoadingMedia(true);
     try {
-      const url = await onFetchGif(sign.signId);
-      setGifUrl(url);
-      if (url) setShowGif(true);
+      const result = await onFetchMedia(sign.signId);
+      setMedia(result);
+      if (result.url) setShowMedia(true);
     } finally {
-      setLoadingGif(false);
+      setLoadingMedia(false);
     }
   };
   
@@ -701,15 +705,26 @@ function SignCard({
           </div>
         </div>
         
-        {/* GIF Display */}
-        {showGif && gifUrl && (
+        {/* Media Display (GIF, Video, or Image) */}
+        {showMedia && media?.url && (
           <div className="mt-3 rounded-xl overflow-hidden bg-gray-100">
-            <img 
-              src={gifUrl} 
-              alt={`ASL sign for ${displayName}`}
-              className="w-full max-w-[320px] mx-auto"
-              loading="lazy"
-            />
+            {media.type === "video" ? (
+              <video 
+                src={media.url}
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="w-full max-w-[320px] mx-auto"
+              />
+            ) : (
+              <img 
+                src={media.url} 
+                alt={`ASL sign for ${displayName}`}
+                className="w-full max-w-[320px] mx-auto"
+                loading="lazy"
+              />
+            )}
           </div>
         )}
         
@@ -726,11 +741,11 @@ function SignCard({
             />
             
             <button
-              onClick={handleShowGif}
-              disabled={loadingGif}
+              onClick={handleShowMedia}
+              disabled={loadingMedia}
               className="text-sm text-purple-600 font-medium px-3 py-1.5 bg-purple-50 rounded-full hover:bg-purple-100 disabled:opacity-50"
             >
-              {loadingGif ? "Loading..." : showGif ? "Hide GIF" : "🎬 Show GIF"}
+              {loadingMedia ? "Loading..." : showMedia ? "Hide" : "🎬 Show Sign"}
             </button>
             
             <a

@@ -59,7 +59,9 @@ export default defineSchema({
     description: v.optional(v.string()),
     lifeprintUrl: v.optional(v.string()), // Primary link to Lifeprint.com
     gifUrl: v.optional(v.string()), // Animated GIF showing the sign
-    imageUrl: v.optional(v.string()),
+    videoUrl: v.optional(v.string()), // MP4 video showing the sign
+    imageUrl: v.optional(v.string()), // Static illustration
+    mediaType: v.optional(v.union(v.literal("gif"), v.literal("video"), v.literal("image"), v.literal("none"))),
     category: v.optional(v.string()),
   }).index("by_sign_id", ["signId"]),
   
