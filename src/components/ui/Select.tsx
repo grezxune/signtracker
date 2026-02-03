@@ -18,15 +18,15 @@ interface SelectProps {
   variant?: "default" | "pill" | "minimal";
 }
 
-// Hook to calculate dropdown position
+// Hook to calculate dropdown position - returns null until position is ready
 function useDropdownPosition(
   triggerRef: React.RefObject<HTMLElement | null>,
   isOpen: boolean
 ) {
-  const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });
+  const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
 
   const updatePosition = useCallback(() => {
-    if (triggerRef.current && isOpen) {
+    if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
       setPosition({
         top: rect.bottom + window.scrollY + 8,
@@ -34,18 +34,23 @@ function useDropdownPosition(
         width: rect.width,
       });
     }
-  }, [triggerRef, isOpen]);
+  }, [triggerRef]);
 
+  // Calculate position immediately when opening (before render)
   useEffect(() => {
-    updatePosition();
-    
     if (isOpen) {
+      // Immediate sync update
+      updatePosition();
+      
       window.addEventListener("scroll", updatePosition, true);
       window.addEventListener("resize", updatePosition);
       return () => {
         window.removeEventListener("scroll", updatePosition, true);
         window.removeEventListener("resize", updatePosition);
       };
+    } else {
+      // Reset position when closed so next open recalculates fresh
+      setPosition(null);
     }
   }, [isOpen, updatePosition]);
 
@@ -123,7 +128,8 @@ export function Select({
     minimal: "bg-white border border-gray-200 rounded-xl shadow-lg",
   };
 
-  const dropdown = isOpen && mounted && (
+  // Only render dropdown when position is calculated to prevent fly-in from top-left
+  const dropdown = isOpen && mounted && position && (
     <div
       ref={dropdownRef}
       style={{
@@ -265,7 +271,8 @@ export function ConfidenceSelect({ value, onChange }: ConfidenceSelectProps) {
 
   const selectedOption = options.find((opt) => opt.value === value) || options[0];
 
-  const dropdown = isOpen && mounted && (
+  // Only render dropdown when position is calculated to prevent fly-in from top-left
+  const dropdown = isOpen && mounted && position && (
     <div
       ref={dropdownRef}
       style={{
