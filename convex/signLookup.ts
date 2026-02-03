@@ -7,6 +7,7 @@ type SignResult = {
   name: string;
   description?: string;
   lifeprintUrl?: string;
+  gifUrl?: string;
   imageUrl?: string;
   category?: string;
 };
@@ -71,6 +72,7 @@ export const getCachedSigns = internalQuery({
         name: exactMatch.name,
         description: exactMatch.description,
         lifeprintUrl: exactMatch.lifeprintUrl,
+        gifUrl: exactMatch.gifUrl,
         imageUrl: exactMatch.imageUrl,
         category: exactMatch.category,
       }];
@@ -93,6 +95,7 @@ export const getCachedSigns = internalQuery({
       name: s.name,
       description: s.description,
       lifeprintUrl: s.lifeprintUrl,
+      gifUrl: s.gifUrl,
       imageUrl: s.imageUrl,
       category: s.category,
     }));
@@ -662,5 +665,149 @@ export const setUserRole = mutation({
     await ctx.db.patch(targetUser._id, { role });
     
     return { success: true, targetEmail, role };
+  },
+});
+
+// Scrape GIF URL from Lifeprint page
+export const scrapeGifUrl = internalAction({
+  args: { lifeprintUrl: v.string() },
+  handler: async (_, { lifeprintUrl }): Promise<string | null> => {
+    try {
+      const response = await fetch(lifeprintUrl);
+      if (!response.ok) return null;
+      
+      const html = await response.text();
+      
+      // Look for GIF patterns - prioritize gifs/ folder, then gifs-animated/
+      const gifPatterns = [
+        /src="\.\.\/\.\.\/gifs\/[^"]+\.gif"/gi,
+        /src="\.\.\/\.\.\/gifs-animated\/[^"]+\.gif"/gi,
+      ];
+      
+      for (const pattern of gifPatterns) {
+        const matches = html.match(pattern);
+        if (matches && matches.length > 0) {
+          // Extract the path and convert to absolute URL
+          const match = matches[0];
+          const pathMatch = match.match(/src="([^"]+)"/i);
+          if (pathMatch) {
+            const relativePath = pathMatch[1];
+            // Convert ../../gifs/x/sign.gif to absolute URL
+            const absoluteUrl = relativePath
+              .replace("../../", "https://www.lifeprint.com/asl101/");
+            return absoluteUrl;
+          }
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error("Error scraping GIF:", error);
+      return null;
+    }
+  },
+});
+
+// Fetch and cache GIF URL for a sign
+export const fetchGifForSign = action({
+  args: { signId: v.string() },
+  handler: async (ctx, { signId }): Promise<string | null> => {
+    // Get the sign from dictionary
+    const sign = await ctx.runQuery(internal.signLookup.getSignByIdInternal, { signId });
+    
+    if (!sign) return null;
+    
+    // If already has a GIF URL, return it
+    if (sign.gifUrl) return sign.gifUrl;
+    
+    // If no lifeprint URL, can't scrape
+    if (!sign.lifeprintUrl) return null;
+    
+    // Scrape the GIF URL
+    const gifUrl = await ctx.runAction(internal.signLookup.scrapeGifUrl, { 
+      lifeprintUrl: sign.lifeprintUrl 
+    });
+    
+    // Cache the result (even if null, we store undefined to avoid re-scraping)
+    if (gifUrl) {
+      await ctx.runMutation(internal.signLookup.updateSignGif, { 
+        signId, 
+        gifUrl 
+      });
+    }
+    
+    return gifUrl;
+  },
+});
+
+// Internal query to get sign by ID
+export const getSignByIdInternal = internalQuery({
+  args: { signId: v.string() },
+  handler: async (ctx, { signId }) => {
+    return await ctx.db
+      .query("savedSigns")
+      .withIndex("by_sign_id", (q) => q.eq("signId", signId))
+      .first();
+  },
+});
+
+// Internal mutation to update sign GIF URL
+export const updateSignGif = internalMutation({
+  args: { 
+    signId: v.string(),
+    gifUrl: v.string(),
+  },
+  handler: async (ctx, { signId, gifUrl }) => {
+    const sign = await ctx.db
+      .query("savedSigns")
+      .withIndex("by_sign_id", (q) => q.eq("signId", signId))
+      .first();
+    
+    if (sign) {
+      await ctx.db.patch(sign._id, { gifUrl });
+    }
+  },
+});
+
+// Batch fetch GIFs for multiple signs (for page load optimization)
+export const fetchGifsForSigns = action({
+  args: { signIds: v.array(v.string()) },
+  handler: async (ctx, { signIds }): Promise<Record<string, string | null>> => {
+    const results: Record<string, string | null> = {};
+    
+    // Process in parallel but limit concurrency
+    const batchSize = 3;
+    for (let i = 0; i < signIds.length; i += batchSize) {
+      const batch = signIds.slice(i, i + batchSize);
+      const promises = batch.map(async (signId) => {
+        const gifUrl = await ctx.runAction(internal.signLookup.fetchGifForSignInternal, { signId });
+        results[signId] = gifUrl;
+      });
+      await Promise.all(promises);
+    }
+    
+    return results;
+  },
+});
+
+// Internal version for batch processing
+export const fetchGifForSignInternal = internalAction({
+  args: { signId: v.string() },
+  handler: async (ctx, { signId }): Promise<string | null> => {
+    const sign = await ctx.runQuery(internal.signLookup.getSignByIdInternal, { signId });
+    
+    if (!sign) return null;
+    if (sign.gifUrl) return sign.gifUrl;
+    if (!sign.lifeprintUrl) return null;
+    
+    const gifUrl = await ctx.runAction(internal.signLookup.scrapeGifUrl, { 
+      lifeprintUrl: sign.lifeprintUrl 
+    });
+    
+    if (gifUrl) {
+      await ctx.runMutation(internal.signLookup.updateSignGif, { signId, gifUrl });
+    }
+    
+    return gifUrl;
   },
 });
