@@ -7,6 +7,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Select } from "@/components/ui/Select";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 
 export default function DictionaryPage() {
   const { data: session, status } = useSession();
@@ -41,7 +42,8 @@ export default function DictionaryPage() {
   // Super user dictionary editing
   const [editingDictEntry, setEditingDictEntry] = useState<string | null>(null);
   const [editDictForm, setEditDictForm] = useState({ name: "", description: "", category: "" });
-  const [deletingDictEntry, setDeletingDictEntry] = useState<string | null>(null);
+  const [deletingDictEntry, setDeletingDictEntry] = useState<{ signId: string; name: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Dictionary browsing
   const dictionary = useQuery(api.signLookup.browseDictionaryGlobal, { 
@@ -250,31 +252,6 @@ export default function DictionaryPage() {
                           </button>
                         </div>
                       </div>
-                    ) : deletingDictEntry === sign.signId ? (
-                      /* Delete Confirmation */
-                      <div className="space-y-3">
-                        <p className="text-red-600 font-medium">
-                          Delete &quot;{sign.name}&quot;? This will also remove it from ALL children&apos;s profiles.
-                        </p>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={async () => {
-                              if (!email) return;
-                              await deleteDictionaryEntry({ email, signId: sign.signId });
-                              setDeletingDictEntry(null);
-                            }}
-                            className="bg-red-600 text-white px-4 py-2 rounded-lg font-medium"
-                          >
-                            Yes, Delete
-                          </button>
-                          <button
-                            onClick={() => setDeletingDictEntry(null)}
-                            className="bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
                     ) : (
                       /* Normal View */
                       <div className="flex items-start justify-between gap-3">
@@ -317,7 +294,7 @@ export default function DictionaryPage() {
                                 ✏️ Edit
                               </button>
                               <button
-                                onClick={() => setDeletingDictEntry(sign.signId)}
+                                onClick={() => setDeletingDictEntry({ signId: sign.signId, name: sign.name })}
                                 className="text-sm text-red-600 font-medium"
                               >
                                 🗑️ Delete
@@ -500,6 +477,28 @@ export default function DictionaryPage() {
           </div>
         </div>
       )}
+
+      {/* Delete Dictionary Entry Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={deletingDictEntry !== null}
+        onClose={() => setDeletingDictEntry(null)}
+        onConfirm={async () => {
+          if (!email || !deletingDictEntry) return;
+          setIsDeleting(true);
+          try {
+            await deleteDictionaryEntry({ email, signId: deletingDictEntry.signId });
+          } finally {
+            setIsDeleting(false);
+            setDeletingDictEntry(null);
+          }
+        }}
+        title={`Delete "${deletingDictEntry?.name}"?`}
+        message="This will permanently delete the sign from the dictionary and remove it from ALL children's profiles. This action cannot be undone."
+        confirmText="Delete Forever"
+        cancelText="Keep It"
+        variant="danger"
+        isLoading={isDeleting}
+      />
     </div>
   );
 }

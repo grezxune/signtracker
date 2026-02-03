@@ -8,6 +8,7 @@ import { useState, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Select, ConfidenceSelect } from "@/components/ui/Select";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 
 export default function ChildPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -540,6 +541,8 @@ function SignCard({
   const [isEditing, setIsEditing] = useState(false);
   const [editAlias, setEditAlias] = useState(sign.alias || "");
   const [editSignName, setEditSignName] = useState(sign.signName || "");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Generate Lifeprint URL based on original signId (dictionary reference)
   const lifeprintUrl = sign.lifeprintUrl || `https://www.lifeprint.com/asl101/pages-signs/${sign.signId.charAt(0).toLowerCase()}/${sign.signId.toLowerCase().replace(/\s+/g, "-")}.htm`;
@@ -577,6 +580,17 @@ function SignCard({
     setEditAlias(sign.alias || "");
     setEditSignName(sign.signName || "");
     setIsEditing(false);
+  };
+
+  const handleDelete = async () => {
+    if (!email) return;
+    setIsDeleting(true);
+    try {
+      await onRemove({ email, knownSignId: sign._id });
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+    }
   };
   
   if (isEditing) {
@@ -627,70 +641,85 @@ function SignCard({
   }
   
   return (
-    <div className="border border-gray-200 rounded-xl p-4 bg-white">
-      {/* Top row: name and actions */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          {/* Display name + alias indicator */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <h4 className="font-semibold text-gray-800 text-lg">{displayName}</h4>
-            {hasAlias && (
-              <span className="text-sm text-gray-500">
-                (sign: {sign.signName})
-              </span>
-            )}
+    <>
+      <div className="border border-gray-200 rounded-xl p-4 bg-white">
+        {/* Top row: name and actions */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            {/* Display name + alias indicator */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="font-semibold text-gray-800 text-lg">{displayName}</h4>
+              {hasAlias && (
+                <span className="text-sm text-gray-500">
+                  (sign: {sign.signName})
+                </span>
+              )}
+            </div>
+          </div>
+          
+          {/* Action buttons - large touch targets */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => email && onToggleFavorite({ email, knownSignId: sign._id })}
+              className={`p-2 text-2xl ${sign.favorite ? "text-yellow-500" : "text-gray-300"}`}
+              title={sign.favorite ? "Remove from favorites" : "Add to favorites"}
+            >
+              ★
+            </button>
+            <button
+              onClick={() => setIsEditing(true)}
+              className="p-2 text-xl text-gray-400 hover:text-gray-600"
+              title="Edit"
+            >
+              ✏️
+            </button>
           </div>
         </div>
         
-        {/* Action buttons - large touch targets */}
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => email && onToggleFavorite({ email, knownSignId: sign._id })}
-            className={`p-2 text-2xl ${sign.favorite ? "text-yellow-500" : "text-gray-300"}`}
-            title={sign.favorite ? "Remove from favorites" : "Add to favorites"}
-          >
-            ★
-          </button>
-          <button
-            onClick={() => setIsEditing(true)}
-            className="p-2 text-xl text-gray-400 hover:text-gray-600"
-            title="Edit"
-          >
-            ✏️
-          </button>
-        </div>
-      </div>
-      
-      {/* Bottom row: badges and link */}
-      <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <ConfidenceSelect
-            value={sign.confidence || "learning"}
-            onChange={(value) => email && onUpdate({ 
-              email,
-              knownSignId: sign._id, 
-              confidence: value as any 
-            })}
-          />
+        {/* Bottom row: badges and link */}
+        <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <ConfidenceSelect
+              value={sign.confidence || "learning"}
+              onChange={(value) => email && onUpdate({ 
+                email,
+                knownSignId: sign._id, 
+                confidence: value as any 
+              })}
+            />
+            
+            <a
+              href={lifeprintUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-indigo-600 font-medium px-3 py-1.5 bg-indigo-50 rounded-full"
+            >
+              Learn Sign →
+            </a>
+          </div>
           
-          <a
-            href={lifeprintUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-indigo-600 font-medium px-3 py-1.5 bg-indigo-50 rounded-full"
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="p-2 text-red-400 hover:text-red-600 text-lg"
+            title="Remove"
           >
-            Learn Sign →
-          </a>
+            🗑️
+          </button>
         </div>
-        
-        <button
-          onClick={() => email && onRemove({ email, knownSignId: sign._id })}
-          className="p-2 text-red-400 hover:text-red-600 text-lg"
-          title="Remove"
-        >
-          🗑️
-        </button>
       </div>
-    </div>
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={handleDelete}
+        title={`Remove "${displayName}"?`}
+        message="This will remove the sign from this child's profile. You can always add it back later."
+        confirmText="Remove"
+        cancelText="Keep It"
+        variant="danger"
+        isLoading={isDeleting}
+      />
+    </>
   );
 }
