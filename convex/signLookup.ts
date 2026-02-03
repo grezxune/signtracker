@@ -48,11 +48,22 @@ export const search = internalAction({
 export const getCachedSigns = internalQuery({
   args: { query: v.string() },
   handler: async (ctx, { query: searchQuery }): Promise<SignResult[]> => {
-    // Search by exact match first
-    const exactMatch = await ctx.db
+    // Normalize query - convert spaces to hyphens for signId lookup
+    const normalizedSignId = searchQuery.toLowerCase().replace(/\s+/g, "-");
+    
+    // Search by exact match first (try both original and normalized)
+    let exactMatch = await ctx.db
       .query("savedSigns")
-      .withIndex("by_sign_id", (q) => q.eq("signId", searchQuery))
+      .withIndex("by_sign_id", (q) => q.eq("signId", searchQuery.toLowerCase()))
       .first();
+    
+    // If not found, try with normalized (hyphenated) version
+    if (!exactMatch && normalizedSignId !== searchQuery.toLowerCase()) {
+      exactMatch = await ctx.db
+        .query("savedSigns")
+        .withIndex("by_sign_id", (q) => q.eq("signId", normalizedSignId))
+        .first();
+    }
     
     if (exactMatch) {
       return [{
@@ -65,12 +76,17 @@ export const getCachedSigns = internalQuery({
       }];
     }
     
-    // Then search by name containing the query
+    // Then search by name containing the query (normalize spaces/hyphens)
     const allSigns = await ctx.db.query("savedSigns").collect();
-    const matches = allSigns.filter(sign => 
-      sign.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      sign.signId.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const searchNormalized = searchQuery.toLowerCase().replace(/[\s-]+/g, "");
+    const matches = allSigns.filter(sign => {
+      const nameNormalized = sign.name.toLowerCase().replace(/[\s-]+/g, "");
+      const signIdNormalized = sign.signId.toLowerCase().replace(/[\s-]+/g, "");
+      return nameNormalized.includes(searchNormalized) ||
+             signIdNormalized.includes(searchNormalized) ||
+             sign.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+             sign.signId.toLowerCase().includes(searchQuery.toLowerCase());
+    });
     
     return matches.slice(0, 10).map(s => ({
       signId: s.signId,
@@ -403,13 +419,18 @@ export const browseDictionary = query({
       signs = signs.filter(s => s.category === category);
     }
     
-    // Filter by search
+    // Filter by search (normalize spaces/hyphens for matching)
     if (search && search.trim()) {
       const searchLower = search.toLowerCase();
-      signs = signs.filter(s => 
-        s.name.toLowerCase().includes(searchLower) ||
-        s.signId.toLowerCase().includes(searchLower)
-      );
+      const searchNormalized = searchLower.replace(/[\s-]+/g, ""); // Remove spaces and hyphens
+      signs = signs.filter(s => {
+        const nameNormalized = s.name.toLowerCase().replace(/[\s-]+/g, "");
+        const signIdNormalized = s.signId.toLowerCase().replace(/[\s-]+/g, "");
+        return nameNormalized.includes(searchNormalized) ||
+               signIdNormalized.includes(searchNormalized) ||
+               s.name.toLowerCase().includes(searchLower) ||
+               s.signId.toLowerCase().includes(searchLower);
+      });
     }
     
     // Sort alphabetically
@@ -452,13 +473,18 @@ export const browseDictionaryGlobal = query({
       signs = signs.filter(s => s.category === category);
     }
     
-    // Filter by search
+    // Filter by search (normalize spaces/hyphens for matching)
     if (search && search.trim()) {
       const searchLower = search.toLowerCase();
-      signs = signs.filter(s => 
-        s.name.toLowerCase().includes(searchLower) ||
-        s.signId.toLowerCase().includes(searchLower)
-      );
+      const searchNormalized = searchLower.replace(/[\s-]+/g, ""); // Remove spaces and hyphens
+      signs = signs.filter(s => {
+        const nameNormalized = s.name.toLowerCase().replace(/[\s-]+/g, "");
+        const signIdNormalized = s.signId.toLowerCase().replace(/[\s-]+/g, "");
+        return nameNormalized.includes(searchNormalized) ||
+               signIdNormalized.includes(searchNormalized) ||
+               s.name.toLowerCase().includes(searchLower) ||
+               s.signId.toLowerCase().includes(searchLower);
+      });
     }
     
     // Sort alphabetically

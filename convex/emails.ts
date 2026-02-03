@@ -205,3 +205,50 @@ export const getQueueStatus = query({
     };
   },
 });
+
+// Admin: Get failed emails with errors
+export const getFailedEmails = query({
+  args: {},
+  handler: async (ctx) => {
+    const failed = await ctx.db
+      .query("emailQueue")
+      .withIndex("by_status", (q) => q.eq("status", "failed"))
+      .collect();
+    
+    return failed.map(e => ({
+      id: e._id,
+      to: e.to,
+      subject: e.subject,
+      error: e.error,
+      attempts: e.attempts,
+      createdAt: e.createdAt,
+    }));
+  },
+});
+
+// Admin: Retry all failed emails
+export const retryFailed = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const failed = await ctx.db
+      .query("emailQueue")
+      .withIndex("by_status", (q) => q.eq("status", "failed"))
+      .collect();
+    
+    let count = 0;
+    for (const email of failed) {
+      await ctx.db.patch(email._id, {
+        status: "pending",
+        error: undefined,
+      });
+      count++;
+    }
+    
+    // Trigger processing
+    if (count > 0) {
+      await ctx.scheduler.runAfter(100, internal.emails.processQueue, {});
+    }
+    
+    return { retriedCount: count };
+  },
+});
