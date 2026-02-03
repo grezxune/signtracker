@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 
 interface SelectOption {
   value: string;
@@ -17,6 +18,40 @@ interface SelectProps {
   variant?: "default" | "pill" | "minimal";
 }
 
+// Hook to calculate dropdown position
+function useDropdownPosition(
+  triggerRef: React.RefObject<HTMLElement | null>,
+  isOpen: boolean
+) {
+  const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });
+
+  const updatePosition = useCallback(() => {
+    if (triggerRef.current && isOpen) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPosition({
+        top: rect.bottom + window.scrollY + 8,
+        left: rect.left + window.scrollX,
+        width: rect.width,
+      });
+    }
+  }, [triggerRef, isOpen]);
+
+  useEffect(() => {
+    updatePosition();
+    
+    if (isOpen) {
+      window.addEventListener("scroll", updatePosition, true);
+      window.addEventListener("resize", updatePosition);
+      return () => {
+        window.removeEventListener("scroll", updatePosition, true);
+        window.removeEventListener("resize", updatePosition);
+      };
+    }
+  }, [isOpen, updatePosition]);
+
+  return position;
+}
+
 export function Select({
   value,
   onChange,
@@ -27,12 +62,26 @@ export function Select({
   variant = "default",
 }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const selectRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const position = useDropdownPosition(triggerRef, isOpen);
+
+  // Mount check for portal
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Close on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (selectRef.current && !selectRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        triggerRef.current && 
+        !triggerRef.current.contains(target) &&
+        dropdownRef.current &&
+        !dropdownRef.current.contains(target)
+      ) {
         setIsOpen(false);
       }
     }
@@ -74,10 +123,63 @@ export function Select({
     minimal: "bg-white border border-gray-200 rounded-xl shadow-lg",
   };
 
+  const dropdown = isOpen && mounted && (
+    <div
+      ref={dropdownRef}
+      style={{
+        position: "absolute",
+        top: position.top,
+        left: position.left,
+        width: position.width,
+        zIndex: 9999,
+      }}
+      className={`
+        ${dropdownVariantClasses[variant]}
+        overflow-hidden
+        animate-in fade-in slide-in-from-top-2 duration-150
+      `}
+    >
+      <div className="max-h-64 overflow-y-auto py-1">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => {
+              onChange(option.value);
+              setIsOpen(false);
+            }}
+            className={`
+              w-full text-left px-4 py-3 text-base
+              transition-colors duration-100
+              ${option.value === value
+                ? "bg-indigo-50 text-indigo-700 font-medium"
+                : "text-gray-700 hover:bg-gray-50"
+              }
+            `}
+          >
+            <div className="flex items-center justify-between">
+              <span>{option.label}</span>
+              {option.value === value && (
+                <svg className="w-5 h-5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path
+                    fillRule="evenodd"
+                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              )}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
-    <div ref={selectRef} className={`relative ${className}`}>
+    <div className={`relative ${className}`}>
       {/* Trigger Button */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className={`
@@ -103,51 +205,8 @@ export function Select({
         </svg>
       </button>
 
-      {/* Dropdown */}
-      {isOpen && (
-        <div
-          className={`
-            absolute z-50 w-full mt-2
-            ${dropdownVariantClasses[variant]}
-            overflow-hidden
-            animate-in fade-in slide-in-from-top-2 duration-150
-          `}
-        >
-          <div className="max-h-64 overflow-y-auto py-1">
-            {options.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => {
-                  onChange(option.value);
-                  setIsOpen(false);
-                }}
-                className={`
-                  w-full text-left px-4 py-3 text-base
-                  transition-colors duration-100
-                  ${option.value === value
-                    ? "bg-indigo-50 text-indigo-700 font-medium"
-                    : "text-gray-700 hover:bg-gray-50"
-                  }
-                `}
-              >
-                <div className="flex items-center justify-between">
-                  <span>{option.label}</span>
-                  {option.value === value && (
-                    <svg className="w-5 h-5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Dropdown via Portal */}
+      {mounted && createPortal(dropdown, document.body)}
     </div>
   );
 }
@@ -160,16 +219,42 @@ interface ConfidenceSelectProps {
 
 export function ConfidenceSelect({ value, onChange }: ConfidenceSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const selectRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const position = useDropdownPosition(triggerRef, isOpen);
 
+  // Mount check for portal
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Close on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (selectRef.current && !selectRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        triggerRef.current && 
+        !triggerRef.current.contains(target) &&
+        dropdownRef.current &&
+        !dropdownRef.current.contains(target)
+      ) {
         setIsOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Close on escape
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
   }, []);
 
   const options = [
@@ -180,9 +265,55 @@ export function ConfidenceSelect({ value, onChange }: ConfidenceSelectProps) {
 
   const selectedOption = options.find((opt) => opt.value === value) || options[0];
 
+  const dropdown = isOpen && mounted && (
+    <div
+      ref={dropdownRef}
+      style={{
+        position: "absolute",
+        top: position.top,
+        left: position.left - 40, // Offset to align right edge better
+        minWidth: 160,
+        zIndex: 9999,
+      }}
+      className="bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150"
+    >
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => {
+            onChange(option.value);
+            setIsOpen(false);
+          }}
+          className={`
+            w-full text-left px-4 py-3 text-sm
+            transition-colors duration-100
+            ${option.value === value ? "bg-gray-50" : "hover:bg-gray-50"}
+          `}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${option.color}`}>
+              {option.label}
+            </span>
+            {option.value === value && (
+              <svg className="w-4 h-4 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fillRule="evenodd"
+                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            )}
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+
   return (
-    <div ref={selectRef} className="relative">
+    <div className="relative inline-block">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className={`
@@ -204,40 +335,8 @@ export function ConfidenceSelect({ value, onChange }: ConfidenceSelectProps) {
         </svg>
       </button>
 
-      {isOpen && (
-        <div className="absolute right-0 z-50 mt-2 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden min-w-[140px]">
-          {options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => {
-                onChange(option.value);
-                setIsOpen(false);
-              }}
-              className={`
-                w-full text-left px-4 py-3 text-sm
-                transition-colors duration-100
-                ${option.value === value ? "bg-gray-50" : "hover:bg-gray-50"}
-              `}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${option.color}`}>
-                  {option.label}
-                </span>
-                {option.value === value && (
-                  <svg className="w-4 h-4 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                )}
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Dropdown via Portal */}
+      {mounted && createPortal(dropdown, document.body)}
     </div>
   );
 }
