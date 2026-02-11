@@ -10,6 +10,8 @@
 
 import type * as children from "../children.js";
 import type * as emails from "../emails.js";
+import type * as jwks from "../jwks.js";
+import type * as lib_auth from "../lib/auth.js";
 import type * as signLookup from "../signLookup.js";
 import type * as signs from "../signs.js";
 import type * as users from "../users.js";
@@ -23,6 +25,8 @@ import type {
 declare const fullApi: ApiFromModules<{
   children: typeof children;
   emails: typeof emails;
+  jwks: typeof jwks;
+  "lib/auth": typeof lib_auth;
   signLookup: typeof signLookup;
   signs: typeof signs;
   users: typeof users;

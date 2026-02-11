@@ -2,7 +2,20 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #111827;
+  --surface: #ffffff;
+  --input-text: #1f2937;
+  --input-placeholder: #6b7280;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0f172a;
+    --foreground: #e5e7eb;
+    --surface: #111827;
+    --input-text: #f3f4f6;
+    --input-placeholder: #94a3b8;
+  }
 }
 
 @theme inline {
@@ -15,18 +28,22 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
 }
 
-/* Ensure all input fields have visible dark text */
+html,
+body {
+  overflow-x: hidden;
+}
+
 input,
 textarea,
 select {
-  color: #1f2937 !important;
-  background-color: #ffffff !important;
+  color: var(--input-text);
+  background-color: var(--surface);
 }
 
 input::placeholder,
 textarea::placeholder {
-  color: #9ca3af !important;
+  color: var(--input-placeholder);
 }

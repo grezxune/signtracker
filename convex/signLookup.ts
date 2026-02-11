@@ -1,5 +1,15 @@
 import { v } from "convex/values";
-import { action, query, mutation, internalMutation, internalQuery, internalAction } from "./_generated/server";
+import {
+  action,
+  query,
+  mutation,
+  internalMutation,
+  internalQuery,
+  internalAction,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 
 type SignResult = {
@@ -11,6 +21,27 @@ type SignResult = {
   imageUrl?: string;
   category?: string;
 };
+
+type ReadCtx = QueryCtx | MutationCtx;
+
+async function getAuthUserByIdentity(ctx: ReadCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity || typeof identity.email !== "string") return null;
+
+  const email = identity.email.toLowerCase();
+  return await ctx.db
+    .query("users")
+    .withIndex("by_email", (q) => q.eq("email", email))
+    .first();
+}
+
+async function requireSuperUser(ctx: MutationCtx) {
+  const user = await getAuthUserByIdentity(ctx);
+  if (!user || user.role !== "super_user") {
+    throw new Error("Access denied: super_user role required");
+  }
+  return user;
+}
 
 // Search for signs - returns cached results or fetches new ones
 export const search = internalAction({
@@ -195,14 +226,18 @@ function guessCategory(query: string): string {
 // Quick add - search and add in one step
 export const quickAdd = action({
   args: {
-    email: v.string(),
     childId: v.optional(v.id("children")),
     searchQuery: v.string(),
     notes: v.optional(v.string()),
     category: v.optional(v.string()),
     dictionaryOnly: v.optional(v.boolean()),
   },
-  handler: async (ctx, { email, childId, searchQuery, notes, category, dictionaryOnly }): Promise<SignResult> => {
+  handler: async (ctx, { childId, searchQuery, notes, category, dictionaryOnly }): Promise<SignResult> => {
+    const userId = await ctx.runQuery(internal.signLookup.getCurrentUserId, {});
+    if (!userId) {
+      throw new Error("Unauthorized");
+    }
+
     // Search for the sign (this also caches it to dictionary)
     const searchResult = await ctx.runAction(internal.signLookup.search, { 
       query: searchQuery 
@@ -236,7 +271,7 @@ export const quickAdd = action({
     
     // Add to known signs
     await ctx.runMutation(internal.signLookup.addKnownSign, {
-      email,
+      userId,
       childId,
       signId: sign.signId,
       signName: sign.name,
@@ -247,6 +282,14 @@ export const quickAdd = action({
     });
     
     return { ...sign, category: finalCategory };
+  },
+});
+
+export const getCurrentUserId = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<Id<"users"> | null> => {
+    const user = await getAuthUserByIdentity(ctx);
+    return user?._id ?? null;
   },
 });
 
@@ -284,7 +327,7 @@ export const ensureDictionaryEntry = internalMutation({
 // Internal mutation to add known sign with extra data
 export const addKnownSign = internalMutation({
   args: {
-    email: v.string(),
+    userId: v.id("users"),
     childId: v.id("children"),
     signId: v.string(),
     signName: v.string(),
@@ -293,22 +336,14 @@ export const addKnownSign = internalMutation({
     lifeprintUrl: v.optional(v.string()),
     description: v.optional(v.string()),
   },
-  handler: async (ctx, { email, childId, signId: rawSignId, signName, signCategory, notes, lifeprintUrl, description }) => {
+  handler: async (ctx, { userId, childId, signId: rawSignId, signName, signCategory, notes, lifeprintUrl, description }) => {
     // Normalize signId to lowercase for consistent matching
     const signId = rawSignId.toLowerCase();
-    
-    // Get user
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .first();
-    
-    if (!user) throw new Error("User not found");
     
     // Check access
     const access = await ctx.db
       .query("childAccess")
-      .withIndex("by_user_child", (q) => q.eq("userId", user._id).eq("childId", childId))
+      .withIndex("by_user_child", (q) => q.eq("userId", userId).eq("childId", childId))
       .first();
     
     if (!access) throw new Error("Access denied");
@@ -353,7 +388,7 @@ export const addKnownSign = internalMutation({
       learnedAt: Date.now(),
       notes,
       confidence: "learning",
-      addedBy: user._id,
+      addedBy: userId,
       favorite: false,
     });
   },
@@ -443,6 +478,20 @@ export const browseDictionary = query({
     
     // If childId provided, check which signs are already known
     if (childId) {
+      const user = await getAuthUserByIdentity(ctx);
+      if (!user) {
+        throw new Error("Unauthorized");
+      }
+
+      const access = await ctx.db
+        .query("childAccess")
+        .withIndex("by_user_child", (q) => q.eq("userId", user._id).eq("childId", childId))
+        .first();
+
+      if (!access) {
+        throw new Error("Access denied");
+      }
+
       const knownSigns = await ctx.db
         .query("knownSigns")
         .withIndex("by_child", (q) => q.eq("childId", childId))
@@ -519,13 +568,9 @@ export const getDictionaryStats = query({
 
 // Check if user is super_user
 export const isSuperUser = query({
-  args: { email: v.string() },
-  handler: async (ctx, { email }) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .first();
-    
+  args: {},
+  handler: async (ctx) => {
+    const user = await getAuthUserByIdentity(ctx);
     return user?.role === "super_user";
   },
 });
@@ -533,24 +578,15 @@ export const isSuperUser = query({
 // Super user: Edit dictionary entry
 export const editDictionaryEntry = mutation({
   args: {
-    email: v.string(),
     signId: v.string(),
     name: v.optional(v.string()),
     description: v.optional(v.string()),
     category: v.optional(v.string()),
     lifeprintUrl: v.optional(v.string()),
   },
-  handler: async (ctx, { email, signId, name, description, category, lifeprintUrl }) => {
-    // Check super_user
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .first();
-    
-    if (!user || user.role !== "super_user") {
-      throw new Error("Access denied: super_user role required");
-    }
-    
+  handler: async (ctx, { signId, name, description, category, lifeprintUrl }) => {
+    await requireSuperUser(ctx);
+
     // Find the dictionary entry
     const entry = await ctx.db
       .query("savedSigns")
@@ -577,20 +613,11 @@ export const editDictionaryEntry = mutation({
 // Super user: Delete dictionary entry (cascades to all knownSigns)
 export const deleteDictionaryEntry = mutation({
   args: {
-    email: v.string(),
     signId: v.string(),
   },
-  handler: async (ctx, { email, signId }) => {
-    // Check super_user
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .first();
-    
-    if (!user || user.role !== "super_user") {
-      throw new Error("Access denied: super_user role required");
-    }
-    
+  handler: async (ctx, { signId }) => {
+    await requireSuperUser(ctx);
+
     // Find the dictionary entry
     const entry = await ctx.db
       .query("savedSigns")
@@ -637,25 +664,16 @@ export const deleteDictionaryEntry = mutation({
 // Super user: Set user role (only super_user can promote others)
 export const setUserRole = mutation({
   args: {
-    email: v.string(), // requesting user
     targetEmail: v.string(), // user to update
     role: v.union(v.literal("user"), v.literal("super_user")),
   },
-  handler: async (ctx, { email, targetEmail, role }) => {
-    // Check super_user
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .first();
-    
-    if (!user || user.role !== "super_user") {
-      throw new Error("Access denied: super_user role required");
-    }
-    
+  handler: async (ctx, { targetEmail, role }) => {
+    await requireSuperUser(ctx);
+
     // Find target user
     const targetUser = await ctx.db
       .query("users")
-      .withIndex("by_email", (q) => q.eq("email", targetEmail))
+      .withIndex("by_email", (q) => q.eq("email", targetEmail.toLowerCase()))
       .first();
     
     if (!targetUser) {
@@ -821,7 +839,12 @@ export const updateSignMedia = internalMutation({
       .first();
     
     if (sign) {
-      const updates: Record<string, any> = { mediaType };
+      const updates: {
+        mediaType: "gif" | "video" | "image" | "none";
+        gifUrl?: string;
+        videoUrl?: string;
+        imageUrl?: string;
+      } = { mediaType };
       if (gifUrl) updates.gifUrl = gifUrl;
       if (videoUrl) updates.videoUrl = videoUrl;
       if (imageUrl) updates.imageUrl = imageUrl;

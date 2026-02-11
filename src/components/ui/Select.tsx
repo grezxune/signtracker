@@ -36,22 +36,18 @@ function useDropdownPosition(
     }
   }, [triggerRef]);
 
-  // Calculate position immediately when opening (before render)
   useEffect(() => {
-    if (isOpen) {
-      // Immediate sync update
-      updatePosition();
-      
-      window.addEventListener("scroll", updatePosition, true);
-      window.addEventListener("resize", updatePosition);
-      return () => {
-        window.removeEventListener("scroll", updatePosition, true);
-        window.removeEventListener("resize", updatePosition);
-      };
-    } else {
-      // Reset position when closed so next open recalculates fresh
-      setPosition(null);
-    }
+    if (!isOpen) return;
+
+    const frame = window.requestAnimationFrame(updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+    };
   }, [isOpen, updatePosition]);
 
   return position;
@@ -67,15 +63,10 @@ export function Select({
   variant = "default",
 }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const position = useDropdownPosition(triggerRef, isOpen);
-
-  // Mount check for portal
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const canUsePortal = typeof document !== "undefined";
 
   // Close on outside click
   useEffect(() => {
@@ -129,7 +120,7 @@ export function Select({
   };
 
   // Only render dropdown when position is calculated to prevent fly-in from top-left
-  const dropdown = isOpen && mounted && position && (
+  const dropdown = isOpen && canUsePortal && position && (
     <div
       ref={dropdownRef}
       style={{
@@ -212,7 +203,7 @@ export function Select({
       </button>
 
       {/* Dropdown via Portal */}
-      {mounted && createPortal(dropdown, document.body)}
+      {canUsePortal && createPortal(dropdown, document.body)}
     </div>
   );
 }
@@ -225,15 +216,10 @@ interface ConfidenceSelectProps {
 
 export function ConfidenceSelect({ value, onChange }: ConfidenceSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const position = useDropdownPosition(triggerRef, isOpen);
-
-  // Mount check for portal
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const canUsePortal = typeof document !== "undefined";
 
   // Close on outside click
   useEffect(() => {
@@ -272,7 +258,7 @@ export function ConfidenceSelect({ value, onChange }: ConfidenceSelectProps) {
   const selectedOption = options.find((opt) => opt.value === value) || options[0];
 
   // Only render dropdown when position is calculated to prevent fly-in from top-left
-  const dropdown = isOpen && mounted && position && (
+  const dropdown = isOpen && canUsePortal && position && (
     <div
       ref={dropdownRef}
       style={{
@@ -343,7 +329,7 @@ export function ConfidenceSelect({ value, onChange }: ConfidenceSelectProps) {
       </button>
 
       {/* Dropdown via Portal */}
-      {mounted && createPortal(dropdown, document.body)}
+      {canUsePortal && createPortal(dropdown, document.body)}
     </div>
   );
 }

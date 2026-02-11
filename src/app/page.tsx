@@ -1,28 +1,17 @@
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
+import type { Session } from "next-auth";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 export default function Home() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  
-  // Sync user to Convex on sign in
-  const getOrCreateUser = useMutation(api.users.getOrCreate);
-  
-  useEffect(() => {
-    if (session?.user?.email) {
-      getOrCreateUser({
-        email: session.user.email,
-        name: session.user.name || undefined,
-        image: session.user.image || undefined,
-      });
-    }
-  }, [session, getOrCreateUser]);
   
   if (status === "loading") {
     return (
@@ -43,9 +32,8 @@ export default function Home() {
   return <Dashboard session={session} />;
 }
 
-function Dashboard({ session }: { session: any }) {
-  const email = session.user?.email ?? undefined;
-  const children = useQuery(api.children.list, { email }) || [];
+function Dashboard({ session }: { session: Session }) {
+  const children = useQuery(api.children.list, {}) || [];
   const createChild = useMutation(api.children.create);
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
@@ -53,10 +41,9 @@ function Dashboard({ session }: { session: any }) {
   
   const handleAddChild = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim() || !email) return;
+    if (!newName.trim()) return;
     
     await createChild({ 
-      email,
       name: newName.trim(),
       birthDate: newBirthDate || undefined,
     });
@@ -80,9 +67,12 @@ function Dashboard({ session }: { session: any }) {
             </Link>
             <div className="flex items-center gap-2">
               {session.user?.image && (
-                <img 
+                <Image
                   src={session.user.image} 
-                  alt="" 
+                  alt=""
+                  width={32}
+                  height={32}
+                  unoptimized
                   className="w-8 h-8 rounded-full"
                 />
               )}
@@ -171,7 +161,7 @@ function Dashboard({ session }: { session: any }) {
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
-            {children.map((child: any) => (
+            {children.map((child) => (
               <Link
                 key={child._id}
                 href={`/child/${child._id}`}

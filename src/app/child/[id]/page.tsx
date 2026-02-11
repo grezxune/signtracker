@@ -4,22 +4,70 @@ import { useSession } from "next-auth/react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { useState, use, useEffect } from "react";
+import { useState, use } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Select, ConfidenceSelect } from "@/components/ui/Select";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
+
+type ConfidenceLevel = "learning" | "familiar" | "mastered";
+
+type KnownSign = {
+  _id: Id<"knownSigns">;
+  signId: string;
+  signName: string;
+  signCategory?: string;
+  alias?: string;
+  favorite?: boolean;
+  confidence?: ConfidenceLevel;
+  lifeprintUrl?: string;
+  gifUrl?: string;
+  videoUrl?: string;
+  imageUrl?: string;
+};
+
+type ChildDetails = {
+  _id: Id<"children">;
+  name: string;
+  role: "owner" | "shared";
+  signs: KnownSign[];
+  sharedWith: Array<{ id: Id<"users">; email: string; role: "owner" | "shared" }>;
+};
+
+type ChildStats = {
+  total: number;
+  byConfidence: { learning: number; familiar: number; mastered: number };
+  recentCount: number;
+};
+
+type SignsByCategory = {
+  favorites: KnownSign[];
+  categories: Record<string, KnownSign[]>;
+  allCategories: string[];
+};
+
+type DictionaryResult = {
+  _id: string;
+  signId: string;
+  name: string;
+  category?: string;
+  isKnown: boolean;
+};
+
+function toErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
 
 export default function ChildPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const childId = id as Id<"children">;
   const { data: session, status } = useSession();
   const router = useRouter();
-  const email = session?.user?.email ?? undefined;
   
-  const child = useQuery(api.children.get, { childId, email });
-  const stats = useQuery(api.signs.getStats, { childId, email });
-  const signsByCategory = useQuery(api.signs.listByCategory, { childId, email });
+  const child = useQuery(api.children.get, { childId }) as ChildDetails | null | undefined;
+  const stats = useQuery(api.signs.getStats, { childId }) as ChildStats | null | undefined;
+  const signsByCategory = useQuery(api.signs.listByCategory, { childId }) as SignsByCategory | undefined;
   const categories = useQuery(api.signLookup.getCategories, {});
   
   const updateSign = useMutation(api.signs.updateKnown);
@@ -51,7 +99,7 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
     searchQuery.trim().length >= 2 
       ? { search: searchQuery.trim(), limit: 10, childId }
       : "skip"
-  );
+  ) as DictionaryResult[] | undefined;
   
   // Track expanded accordions - start with all expanded
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
@@ -102,12 +150,9 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
     );
   }
   
-  const handleAddFromDictionary = async (sign: any) => {
-    if (!email) return;
-    
+  const handleAddFromDictionary = async (sign: DictionaryResult) => {
     try {
       await addKnownSign({
-        email,
         childId,
         signId: sign.signId,
         signName: sign.name,
@@ -117,14 +162,14 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
       setSearchQuery("");
       setShowSearchResults(false);
       setTimeout(() => setAddSuccess(""), 3000);
-    } catch (err: any) {
-      setAddError(err.message || "Failed to add sign");
+    } catch (error) {
+      setAddError(toErrorMessage(error, "Failed to add sign"));
       setTimeout(() => setAddError(""), 3000);
     }
   };
   
   const handleCreateNewSign = async () => {
-    if (!email || !searchQuery.trim()) return;
+    if (!searchQuery.trim()) return;
     
     setAddingSign(true);
     setAddError("");
@@ -132,7 +177,6 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
     
     try {
       await quickAddSign({
-        email,
         childId,
         searchQuery: searchQuery.trim(),
         category: selectedCategory !== "all" ? selectedCategory : undefined,
@@ -141,8 +185,8 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
       setSearchQuery("");
       setShowSearchResults(false);
       setTimeout(() => setAddSuccess(""), 3000);
-    } catch (err: any) {
-      setAddError(err.message || "Failed to add sign");
+    } catch (error) {
+      setAddError(toErrorMessage(error, "Failed to add sign"));
       setTimeout(() => setAddError(""), 3000);
     } finally {
       setAddingSign(false);
@@ -151,20 +195,19 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
   
   const handleShare = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) return;
     setShareError("");
     setShareSuccess("");
     
     try {
-      const result = await shareChild({ email, childId, shareWithEmail: shareEmail });
+      const result = await shareChild({ childId, shareWithEmail: shareEmail });
       if (result?.status === "invited") {
         setShareSuccess(`Invite sent to ${shareEmail}! They'll get access when they create an account.`);
       } else {
         setShareSuccess(`Shared with ${shareEmail}!`);
       }
       setShareEmail("");
-    } catch (err: any) {
-      setShareError(err.message || "Failed to share");
+    } catch (error) {
+      setShareError(toErrorMessage(error, "Failed to share"));
     }
   };
   
@@ -174,7 +217,7 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
   
   // Check if search query matches any dictionary result
   const hasExactMatch = dictionaryResults?.some(
-    (s: any) => s.name.toLowerCase() === searchQuery.toLowerCase().trim()
+    (sign) => sign.name.toLowerCase() === searchQuery.toLowerCase().trim()
   );
   
   return (
@@ -282,7 +325,7 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
                     {dictionaryResults && dictionaryResults.length > 0 && (
                       <div className="p-2">
                         <div className="text-xs text-gray-500 uppercase px-2 py-1">From Dictionary</div>
-                        {dictionaryResults.map((sign: any) => (
+                        {dictionaryResults.map((sign) => (
                           <div
                             key={sign._id}
                             className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg"
@@ -376,11 +419,10 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
                     onToggle={() => toggleCategory("Favorites")}
                   >
                     <div className="space-y-2">
-                      {signsByCategory.favorites.map((sign: any) => (
+                      {signsByCategory.favorites.map((sign) => (
                         <SignCard
                           key={sign._id}
                           sign={sign}
-                          email={email}
                           onUpdate={updateSign}
                           onRemove={removeSign}
                           onToggleFavorite={toggleFavorite}
@@ -407,11 +449,10 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
                       onToggle={() => toggleCategory(category)}
                     >
                       <div className="space-y-2">
-                        {signs.map((sign: any) => (
+                        {signs.map((sign) => (
                           <SignCard
                             key={sign._id}
                             sign={sign}
-                            email={email}
                             onUpdate={updateSign}
                             onRemove={removeSign}
                             onToggleFavorite={toggleFavorite}
@@ -470,7 +511,7 @@ export default function ChildPage({ params }: { params: Promise<{ id: string }> 
               <div className="bg-white rounded-xl shadow-sm p-5">
                 <h3 className="font-semibold text-gray-800 mb-3">Shared With</h3>
                 <div className="space-y-3">
-                  {child.sharedWith.map((user: any) => (
+                  {child.sharedWith.map((user) => (
                     <div key={user.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
                       <span className="text-gray-700">{user.email}</span>
                       <span className="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-full">
@@ -526,7 +567,6 @@ function CategoryAccordion({
 // Sign Card Component with Alias & Sign Name Editing
 function SignCard({ 
   sign, 
-  email, 
   onUpdate, 
   onRemove, 
   onToggleFavorite,
@@ -534,13 +574,12 @@ function SignCard({
   onUpdateSignName,
   onFetchMedia,
 }: { 
-  sign: any; 
-  email: string | undefined; 
-  onUpdate: any; 
-  onRemove: any; 
-  onToggleFavorite: any;
-  onUpdateAlias: any;
-  onUpdateSignName: any;
+  sign: KnownSign;
+  onUpdate: (args: { knownSignId: Id<"knownSigns">; confidence?: ConfidenceLevel }) => Promise<unknown>;
+  onRemove: (args: { knownSignId: Id<"knownSigns"> }) => Promise<unknown>;
+  onToggleFavorite: (args: { knownSignId: Id<"knownSigns"> }) => Promise<unknown>;
+  onUpdateAlias: (args: { knownSignId: Id<"knownSigns">; alias: string | null }) => Promise<unknown>;
+  onUpdateSignName: (args: { knownSignId: Id<"knownSigns">; signName: string }) => Promise<unknown>;
   onFetchMedia: (signId: string) => Promise<{ type: string; url: string | null }>;
 }) {
   const [isEditing, setIsEditing] = useState(false);
@@ -580,13 +619,10 @@ function SignCard({
   const hasAlias = !!sign.alias && sign.alias !== sign.signName;
   
   const handleSave = async () => {
-    if (!email) return;
-    
     // Update alias if changed
     const newAlias = editAlias.trim();
     if (newAlias !== (sign.alias || "")) {
       await onUpdateAlias({ 
-        email, 
         knownSignId: sign._id, 
         alias: newAlias || null 
       });
@@ -596,7 +632,6 @@ function SignCard({
     const newSignName = editSignName.trim();
     if (newSignName && newSignName !== sign.signName) {
       await onUpdateSignName({
-        email,
         knownSignId: sign._id,
         signName: newSignName,
       });
@@ -612,10 +647,9 @@ function SignCard({
   };
 
   const handleDelete = async () => {
-    if (!email) return;
     setIsDeleting(true);
     try {
-      await onRemove({ email, knownSignId: sign._id });
+      await onRemove({ knownSignId: sign._id });
     } finally {
       setIsDeleting(false);
       setShowDeleteConfirm(false);
@@ -689,7 +723,7 @@ function SignCard({
           {/* Action buttons - large touch targets */}
           <div className="flex items-center gap-1">
             <button
-              onClick={() => email && onToggleFavorite({ email, knownSignId: sign._id })}
+              onClick={() => onToggleFavorite({ knownSignId: sign._id })}
               className={`p-2 text-2xl ${sign.favorite ? "text-yellow-500" : "text-gray-300"}`}
               title={sign.favorite ? "Remove from favorites" : "Add to favorites"}
             >
@@ -718,9 +752,12 @@ function SignCard({
                 className="w-full max-w-[320px] mx-auto"
               />
             ) : (
-              <img 
+              <Image
                 src={media.url} 
                 alt={`ASL sign for ${displayName}`}
+                width={320}
+                height={240}
+                unoptimized
                 className="w-full max-w-[320px] mx-auto"
                 loading="lazy"
               />
@@ -733,10 +770,9 @@ function SignCard({
           <div className="flex items-center gap-2 flex-wrap">
             <ConfidenceSelect
               value={sign.confidence || "learning"}
-              onChange={(value) => email && onUpdate({ 
-                email,
+              onChange={(value) => onUpdate({ 
                 knownSignId: sign._id, 
-                confidence: value as any 
+                confidence: value as ConfidenceLevel 
               })}
             />
             

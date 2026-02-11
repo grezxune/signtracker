@@ -3,20 +3,40 @@
 import { useSession } from "next-auth/react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Select } from "@/components/ui/Select";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 
+type ChildSummary = {
+  _id: Id<"children">;
+  name: string;
+  signCount: number;
+  role: "owner" | "shared";
+};
+
+type DictionaryEntry = {
+  _id: string;
+  signId: string;
+  name: string;
+  description?: string;
+  category?: string;
+  lifeprintUrl?: string;
+};
+
+function toErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export default function DictionaryPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const email = session?.user?.email ?? undefined;
   
-  const children = useQuery(api.children.list, email ? { email } : "skip") || [];
+  const children = (useQuery(api.children.list, {}) || []) as ChildSummary[];
   const categories = useQuery(api.signLookup.getCategories, {});
-  const isSuperUser = useQuery(api.signLookup.isSuperUser, email ? { email } : "skip");
+  const isSuperUser = useQuery(api.signLookup.isSuperUser, {});
   
   const addKnownSign = useMutation(api.signs.addKnown);
   const quickAddSign = useAction(api.signLookup.quickAdd);
@@ -35,8 +55,8 @@ export default function DictionaryPage() {
   const [addSuccess, setAddSuccess] = useState("");
   
   // Child selection modal
-  const [selectedSign, setSelectedSign] = useState<any>(null);
-  const [selectedChildren, setSelectedChildren] = useState<Set<string>>(new Set());
+  const [selectedSign, setSelectedSign] = useState<DictionaryEntry | null>(null);
+  const [selectedChildren, setSelectedChildren] = useState<Set<Id<"children">>>(new Set());
   const [addingToChildren, setAddingToChildren] = useState(false);
   
   // Super user dictionary editing
@@ -50,7 +70,7 @@ export default function DictionaryPage() {
     category: selectedCategory === "all" ? undefined : selectedCategory,
     search: searchQuery || undefined,
     limit: 100,
-  });
+  }) as DictionaryEntry[] | undefined;
   
   if (status === "loading") {
     return (
@@ -67,7 +87,7 @@ export default function DictionaryPage() {
   
   const handleAddNewSign = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !newSignName.trim()) return;
+    if (!newSignName.trim()) return;
     
     setAddingSign(true);
     setAddError("");
@@ -76,27 +96,25 @@ export default function DictionaryPage() {
     try {
       // Add to dictionary only (no child selected)
       await quickAddSign({
-        email,
-        childId: undefined as any, // Will be handled by the action
         searchQuery: newSignName.trim(),
         category: newSignCategory !== "all" ? newSignCategory : undefined,
         dictionaryOnly: true,
       });
       setAddSuccess(`Added "${newSignName.trim()}" to the dictionary!`);
       setNewSignName("");
-    } catch (err: any) {
-      setAddError(err.message || "Failed to add sign");
+    } catch (error) {
+      setAddError(toErrorMessage(error, "Failed to add sign"));
     } finally {
       setAddingSign(false);
     }
   };
   
-  const handleSelectSign = (sign: any) => {
+  const handleSelectSign = (sign: DictionaryEntry) => {
     setSelectedSign(sign);
     setSelectedChildren(new Set());
   };
   
-  const toggleChildSelection = (childId: string) => {
+  const toggleChildSelection = (childId: Id<"children">) => {
     const newSelected = new Set(selectedChildren);
     if (newSelected.has(childId)) {
       newSelected.delete(childId);
@@ -107,14 +125,13 @@ export default function DictionaryPage() {
   };
   
   const handleAddToChildren = async () => {
-    if (!email || !selectedSign || selectedChildren.size === 0) return;
+    if (!selectedSign || selectedChildren.size === 0) return;
     
     setAddingToChildren(true);
     try {
       for (const childId of selectedChildren) {
         await addKnownSign({
-          email,
-          childId: childId as any,
+          childId,
           signId: selectedSign.signId,
           signName: selectedSign.name,
           signCategory: selectedSign.category,
@@ -122,8 +139,8 @@ export default function DictionaryPage() {
       }
       setSelectedSign(null);
       setSelectedChildren(new Set());
-    } catch (err: any) {
-      console.error(err);
+    } catch (error) {
+      console.error(error);
     } finally {
       setAddingToChildren(false);
     }
@@ -201,7 +218,7 @@ export default function DictionaryPage() {
             {/* Dictionary Results */}
             {dictionary && dictionary.length > 0 ? (
               <div className="space-y-3">
-                {dictionary.map((sign: any) => (
+                {dictionary.map((sign) => (
                   <div key={sign._id} className="bg-white rounded-xl shadow-sm p-4">
                     {/* Edit Mode */}
                     {editingDictEntry === sign.signId ? (
@@ -230,9 +247,7 @@ export default function DictionaryPage() {
                         <div className="flex gap-2">
                           <button
                             onClick={async () => {
-                              if (!email) return;
                               await editDictionaryEntry({
-                                email,
                                 signId: sign.signId,
                                 name: editDictForm.name || undefined,
                                 description: editDictForm.description || undefined,
@@ -421,7 +436,7 @@ export default function DictionaryPage() {
               ) : (
                 <>
                   <div className="space-y-2 mb-4">
-                    {children.map((child: any) => (
+                    {children.map((child) => (
                       <button
                         key={child._id}
                         onClick={() => toggleChildSelection(child._id)}
@@ -483,10 +498,10 @@ export default function DictionaryPage() {
         isOpen={deletingDictEntry !== null}
         onClose={() => setDeletingDictEntry(null)}
         onConfirm={async () => {
-          if (!email || !deletingDictEntry) return;
+          if (!deletingDictEntry) return;
           setIsDeleting(true);
           try {
-            await deleteDictionaryEntry({ email, signId: deletingDictEntry.signId });
+            await deleteDictionaryEntry({ signId: deletingDictEntry.signId });
           } finally {
             setIsDeleting(false);
             setDeletingDictEntry(null);

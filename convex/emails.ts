@@ -1,21 +1,35 @@
 import { v } from "convex/values";
-import { mutation, query, internalQuery, internalMutation, internalAction } from "./_generated/server";
+import {
+  mutation,
+  query,
+  internalQuery,
+  internalMutation,
+  internalAction,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
+import { getAuthUser } from "./lib/auth";
 
 const MAX_ATTEMPTS = 3;
-const BATCH_SIZE = 1; // Process 1 at a time to stay well under 2 TPS
-const PROCESS_INTERVAL_MS = 1000; // 1 second between sends
+const PROCESS_INTERVAL_MS = 1000;
 
-// Queue an email for sending
-export const queue = mutation({
+type ReadCtx = QueryCtx | MutationCtx;
+
+async function requireSuperUser(ctx: ReadCtx) {
+  const user = await getAuthUser(ctx);
+  if (!user || user.role !== "super_user") {
+    throw new Error("Access denied: super_user role required");
+  }
+  return user;
+}
+
+export const queue = internalMutation({
   args: {
     to: v.string(),
     subject: v.string(),
     html: v.string(),
-    ref: v.optional(v.object({
-      type: v.string(),
-      id: v.string(),
-    })),
+    ref: v.optional(v.object({ type: v.string(), id: v.string() })),
   },
   handler: async (ctx, { to, subject, html, ref }) => {
     const emailId = await ctx.db.insert("emailQueue", {
@@ -27,86 +41,67 @@ export const queue = mutation({
       createdAt: Date.now(),
       ref,
     });
-    
-    // Schedule processing
+
     await ctx.scheduler.runAfter(100, internal.emails.processQueue, {});
-    
     return emailId;
   },
 });
 
-// Internal: Process the email queue
 export const processQueue = internalMutation({
   args: {},
   handler: async (ctx) => {
-    // Get oldest pending email
     const pendingEmail = await ctx.db
       .query("emailQueue")
       .withIndex("by_status_created", (q) => q.eq("status", "pending"))
       .first();
-    
+
     if (!pendingEmail) {
-      // Also check for failed emails that can be retried
       const failedEmail = await ctx.db
         .query("emailQueue")
         .withIndex("by_status", (q) => q.eq("status", "failed"))
         .filter((q) => q.lt(q.field("attempts"), MAX_ATTEMPTS))
         .first();
-      
-      if (!failedEmail) {
-        return; // Nothing to process
-      }
-      
-      // Retry failed email
+
+      if (!failedEmail) return;
+
       await ctx.db.patch(failedEmail._id, {
         status: "sending",
         lastAttempt: Date.now(),
       });
-      
-      await ctx.scheduler.runAfter(0, internal.emails.sendEmail, {
-        emailId: failedEmail._id,
-      });
+
+      await ctx.scheduler.runAfter(0, internal.emails.sendEmail, { emailId: failedEmail._id });
       return;
     }
-    
-    // Mark as sending
+
     await ctx.db.patch(pendingEmail._id, {
       status: "sending",
       lastAttempt: Date.now(),
     });
-    
-    // Send the email
-    await ctx.scheduler.runAfter(0, internal.emails.sendEmail, {
-      emailId: pendingEmail._id,
-    });
+
+    await ctx.scheduler.runAfter(0, internal.emails.sendEmail, { emailId: pendingEmail._id });
   },
 });
 
-// Internal: Actually send the email via Resend
 export const sendEmail = internalAction({
   args: { emailId: v.id("emailQueue") },
   handler: async (ctx, { emailId }) => {
-    // Get email details
     const email = await ctx.runQuery(internal.emails.getEmailById, { emailId });
-    
-    if (!email || email.status !== "sending") {
-      return;
-    }
-    
+    if (!email || email.status !== "sending") return;
+
     const apiKey = process.env.AUTH_RESEND_KEY;
     if (!apiKey) {
       await ctx.runMutation(internal.emails.markFailed, {
         emailId,
-        error: "RESEND_API_KEY not configured",
+        error: "AUTH_RESEND_KEY not configured",
       });
       return;
     }
-    
+
     try {
       const response = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -116,32 +111,22 @@ export const sendEmail = internalAction({
           html: email.html,
         }),
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Resend API error: ${response.status} - ${errorText}`);
       }
-      
-      // Success!
+
       await ctx.runMutation(internal.emails.markSent, { emailId });
-      
-      // Schedule next email processing (rate limit: 1 per second)
       await ctx.scheduler.runAfter(PROCESS_INTERVAL_MS, internal.emails.processQueue, {});
-      
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      await ctx.runMutation(internal.emails.markFailed, {
-        emailId,
-        error: errorMessage,
-      });
-      
-      // Still schedule next processing for retries
+      await ctx.runMutation(internal.emails.markFailed, { emailId, error: errorMessage });
       await ctx.scheduler.runAfter(PROCESS_INTERVAL_MS * 5, internal.emails.processQueue, {});
     }
   },
 });
 
-// Internal query to get email by ID
 export const getEmailById = internalQuery({
   args: { emailId: v.id("emailQueue") },
   handler: async (ctx, { emailId }) => {
@@ -149,7 +134,6 @@ export const getEmailById = internalQuery({
   },
 });
 
-// Internal: Mark email as sent
 export const markSent = internalMutation({
   args: { emailId: v.id("emailQueue") },
   handler: async (ctx, { emailId }) => {
@@ -160,16 +144,15 @@ export const markSent = internalMutation({
   },
 });
 
-// Internal: Mark email as failed
 export const markFailed = internalMutation({
-  args: { 
+  args: {
     emailId: v.id("emailQueue"),
     error: v.string(),
   },
   handler: async (ctx, { emailId, error }) => {
     const email = await ctx.db.get(emailId);
     if (!email) return;
-    
+
     await ctx.db.patch(emailId, {
       status: "failed",
       attempts: email.attempts + 1,
@@ -178,26 +161,27 @@ export const markFailed = internalMutation({
   },
 });
 
-// Admin: Get email queue status
 export const getQueueStatus = query({
   args: {},
   handler: async (ctx) => {
+    await requireSuperUser(ctx);
+
     const pending = await ctx.db
       .query("emailQueue")
       .withIndex("by_status", (q) => q.eq("status", "pending"))
       .collect();
-    
+
     const sending = await ctx.db
       .query("emailQueue")
       .withIndex("by_status", (q) => q.eq("status", "sending"))
       .collect();
-    
+
     const failed = await ctx.db
       .query("emailQueue")
       .withIndex("by_status", (q) => q.eq("status", "failed"))
       .filter((q) => q.lt(q.field("attempts"), MAX_ATTEMPTS))
       .collect();
-    
+
     return {
       pending: pending.length,
       sending: sending.length,
@@ -206,49 +190,50 @@ export const getQueueStatus = query({
   },
 });
 
-// Admin: Get failed emails with errors
 export const getFailedEmails = query({
   args: {},
   handler: async (ctx) => {
+    await requireSuperUser(ctx);
+
     const failed = await ctx.db
       .query("emailQueue")
       .withIndex("by_status", (q) => q.eq("status", "failed"))
       .collect();
-    
-    return failed.map(e => ({
-      id: e._id,
-      to: e.to,
-      subject: e.subject,
-      error: e.error,
-      attempts: e.attempts,
-      createdAt: e.createdAt,
+
+    return failed.map((email) => ({
+      id: email._id,
+      to: email.to,
+      subject: email.subject,
+      error: email.error,
+      attempts: email.attempts,
+      createdAt: email.createdAt,
     }));
   },
 });
 
-// Admin: Retry all failed emails
 export const retryFailed = mutation({
   args: {},
   handler: async (ctx) => {
+    await requireSuperUser(ctx);
+
     const failed = await ctx.db
       .query("emailQueue")
       .withIndex("by_status", (q) => q.eq("status", "failed"))
       .collect();
-    
-    let count = 0;
+
+    let retriedCount = 0;
     for (const email of failed) {
       await ctx.db.patch(email._id, {
         status: "pending",
         error: undefined,
       });
-      count++;
+      retriedCount += 1;
     }
-    
-    // Trigger processing
-    if (count > 0) {
+
+    if (retriedCount > 0) {
       await ctx.scheduler.runAfter(100, internal.emails.processQueue, {});
     }
-    
-    return { retriedCount: count };
+
+    return { retriedCount };
   },
 });

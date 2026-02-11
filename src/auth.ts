@@ -8,11 +8,9 @@ export const authConfig: NextAuthConfig = {
       clientId: process.env.AUTH_GOOGLE_ID!,
       clientSecret: process.env.AUTH_GOOGLE_SECRET!,
     }),
-    // Note: Magic links require @convex-dev/auth for Convex projects
-    // Invite emails are handled separately via the email queue system
   ],
   callbacks: {
-    async jwt({ token, user, account }) {
+    async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
         token.email = user.email;
@@ -28,7 +26,6 @@ export const authConfig: NextAuthConfig = {
   },
   pages: {
     signIn: "/auth/signin",
-    verifyRequest: "/auth/verify-request",
     error: "/auth/error",
   },
   session: {
