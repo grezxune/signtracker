@@ -2,12 +2,17 @@
 
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 
 function SignInContent() {
+  const isE2ETestMode = process.env.NEXT_PUBLIC_E2E_TEST_MODE === "true";
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
   const callbackUrl = searchParams.get("callbackUrl") || "/";
+  const [email, setEmail] = useState(process.env.NEXT_PUBLIC_E2E_TEST_EMAIL || "e2e@example.com");
+  const [password, setPassword] = useState(process.env.NEXT_PUBLIC_E2E_TEST_PASSWORD || "e2e-password");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [testSignInError, setTestSignInError] = useState<string | null>(null);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-600 via-blue-700 to-cyan-700 p-4">
@@ -29,6 +34,7 @@ function SignInContent() {
         )}
 
         <button
+          data-testid="google-sign-in"
           onClick={() => signIn("google", { callbackUrl })}
           className="w-full flex items-center justify-center gap-3 bg-white border border-gray-300 rounded-xl px-4 py-3 hover:bg-gray-50 transition"
         >
@@ -52,6 +58,61 @@ function SignInContent() {
           </svg>
           <span className="text-gray-700 font-medium">Continue with Google</span>
         </button>
+
+        {isE2ETestMode && (
+          <form
+            className="mt-4 border-t border-gray-200 pt-4 space-y-3"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setIsSubmitting(true);
+              setTestSignInError(null);
+              const result = await signIn("credentials", {
+                email,
+                password,
+                callbackUrl,
+                redirect: false,
+              });
+
+              if (result?.error) {
+                setTestSignInError("Invalid E2E credentials");
+                setIsSubmitting(false);
+                return;
+              }
+
+              if (result?.url) {
+                window.location.href = result.url;
+                return;
+              }
+
+              setIsSubmitting(false);
+            }}
+          >
+            <p className="text-xs uppercase tracking-wide text-gray-500">E2E Test Sign-In</p>
+            <input
+              data-testid="e2e-email"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-900"
+            />
+            <input
+              data-testid="e2e-password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-900"
+            />
+            <button
+              data-testid="e2e-sign-in"
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              {isSubmitting ? "Signing in..." : "Sign in for E2E"}
+            </button>
+            {testSignInError && <p className="text-xs text-red-600">{testSignInError}</p>}
+          </form>
+        )}
       </div>
     </div>
   );

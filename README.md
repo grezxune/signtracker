@@ -18,8 +18,14 @@ Track a child’s ASL learning journey with shared family access.
 - Shared dictionary with category/search filtering
 - Quick-add dictionary entries and add-to-child flow
 - Family sharing by email invite
+- Sharing management controls (cancel pending invites + revoke shared access)
 - Super-user dictionary edit/delete controls
+- Dictionary governance workflow:
+  - Seed core dictionary entries
+  - User suggestion submission
+  - Super-user suggestion approval/rejection
 - Lifeprint media fetch and cache (GIF/video/image)
+- Security observability APIs for audit events and security alerts
 
 ## Security Model
 
@@ -61,9 +67,11 @@ bun run dev
 - `bun run lint`
 - `bun run test`
 - `bun run build`
+- `bun run test:e2e`
+- `bun run test:e2e:headed`
 
 ## Testing
 
 - Unit tests: `src/lib/*.test.ts`
 - Integration tests: `tests/integration/`
-- E2E placeholder: `tests/e2e/`
+- E2E tests: `tests/e2e/`

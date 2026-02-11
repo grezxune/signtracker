@@ -1,3 +1,3 @@
 # PRD Index
 
-- [Auth and Security Hardening](./security-hardening.md) — status: in-progress
+- [Auth and Security Hardening](./security-hardening.md) — status: shipped

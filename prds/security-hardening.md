@@ -1,12 +1,16 @@
 ---
 title: Auth and Security Hardening
 created: 2026-02-11
-status: in-progress
+status: shipped
 owner: Tommy
 log:
   - 2026-02-11: Initial requirements documented
   - 2026-02-11: Implemented NextAuth-to-Convex JWT bridge and removed email-arg authorization
   - 2026-02-11: Added baseline unit and integration tests
+  - 2026-02-11: Added middleware route protection, CI quality/e2e workflows, and sharing management controls
+  - 2026-02-11: Added audit events, security alerts, and observability endpoints
+  - 2026-02-11: Added dictionary governance workflow (seed + suggestion review)
+  - 2026-02-11: Refactored oversized files into modular feature/domain folders with passing lint/test/build/e2e
 ---
 
 ## Problem
@@ -18,7 +22,7 @@ SignTracker handles child learning data and family-sharing workflows. Access con
 ## Goals & KPIs
 - Eliminate client-trusted identity in backend auth paths.
 - Require authenticated identity checks for all sensitive read/write operations.
-- Achieve passing `lint`, `build`, and `test` gates.
+- Achieve passing `lint`, `build`, `test`, and core `e2e` gates.
 
 ## Personas/Journeys
 - Parent owner: creates child, tracks signs, shares access.
@@ -31,6 +35,9 @@ SignTracker handles child learning data and family-sharing workflows. Access con
 - Convex validates JWT and performs authz via `ctx.auth` identity.
 - Child and sign mutations validate ownership/access server-side.
 - Super-user mutations validate role server-side.
+- Protected routes redirect unauthenticated users to sign-in.
+- Repeated denied attempts are auditable and generate actionable alerts.
+- Dictionary changes support governance (seed, user suggestions, super-user review).
 
 ## Non-functional Requirements
 - No `any` in application code paths.
@@ -56,14 +63,15 @@ SignTracker handles child learning data and family-sharing workflows. Access con
 - No email-based auth args remain in public Convex function contracts.
 - Authenticated flows continue working end-to-end.
 - Automated checks pass in CI/local.
+- Core Playwright E2E flow passes locally.
 
 ## Rollout Plan
 1. Deploy Convex auth config + functions.
 2. Deploy Next.js token route + provider changes.
 3. Validate sign-in, child CRUD, sign CRUD, sharing, dictionary admin flows.
-4. Monitor invite email queue errors.
+4. Enable CI quality + scheduled E2E checks.
+5. Monitor audit events/security alerts and invite email queue errors.
 
 ## Next Steps
-- Add full E2E coverage for auth/share/dictionary flows.
-- Split oversized files into subcomponents/modules under 200 LOC target.
-- Add stricter monitoring for auth failures and unauthorized attempts.
+- Expand E2E coverage to include dictionary governance approval/rejection paths.
+- Add admin UI views for `observability` endpoints (alerts + audit drill-down).

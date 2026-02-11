@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      AUTH_SECRET: "ci-secret-ci-secret-ci-secret-ci-secret"
+      AUTH_GOOGLE_ID: "ci-google-id"
+      AUTH_GOOGLE_SECRET: "ci-google-secret"
+      CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT }}
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+      NEXT_PUBLIC_CONVEX_URL: ${{ secrets.NEXT_PUBLIC_CONVEX_URL }}
+      NEXT_PUBLIC_CONVEX_JWT_ISSUER: ${{ secrets.NEXT_PUBLIC_CONVEX_JWT_ISSUER }}
+      NEXT_PUBLIC_CONVEX_JWT_AUDIENCE: ${{ secrets.NEXT_PUBLIC_CONVEX_JWT_AUDIENCE }}
+      CONVEX_JWT_PRIVATE_KEY: ${{ secrets.CONVEX_JWT_PRIVATE_KEY }}
+      CONVEX_JWT_KID: ${{ secrets.CONVEX_JWT_KID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate required Convex CI env
+        run: |
+          missing=0
+          for var in CONVEX_DEPLOY_KEY NEXT_PUBLIC_CONVEX_URL NEXT_PUBLIC_CONVEX_JWT_ISSUER NEXT_PUBLIC_CONVEX_JWT_AUDIENCE CONVEX_JWT_PRIVATE_KEY CONVEX_JWT_KID; do
+            if [ -z "${!var}" ]; then
+              echo "Missing required CI secret/env: $var"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Regenerate Convex bindings
+        run: bunx convex codegen
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Unit + integration tests
+        run: bun run test
+
+      - name: Build
+        run: bun run build

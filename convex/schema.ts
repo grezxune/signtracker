@@ -103,4 +103,54 @@ export default defineSchema({
   })
     .index("by_status", ["status"])
     .index("by_status_created", ["status", "createdAt"]),
+
+  // Security and operational audit trail
+  auditEvents: defineTable({
+    eventType: v.string(),
+    outcome: v.union(v.literal("success"), v.literal("denied"), v.literal("error")),
+    actorUserId: v.optional(v.id("users")),
+    actorEmail: v.optional(v.string()),
+    targetType: v.optional(v.string()),
+    targetId: v.optional(v.string()),
+    details: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_createdAt", ["createdAt"])
+    .index("by_eventType_createdAt", ["eventType", "createdAt"])
+    .index("by_actorEmail_createdAt", ["actorEmail", "createdAt"])
+    .index("by_outcome_createdAt", ["outcome", "createdAt"]),
+
+  // Alert records for repeated denied attempts
+  securityAlerts: defineTable({
+    actorEmail: v.string(),
+    eventType: v.string(),
+    threshold: v.number(),
+    countInWindow: v.number(),
+    windowStart: v.number(),
+    windowEnd: v.number(),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    createdAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+    resolvedBy: v.optional(v.id("users")),
+    resolutionNotes: v.optional(v.string()),
+  })
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_actor_status", ["actorEmail", "status"]),
+
+  // Governance queue for user-proposed dictionary additions/changes
+  dictionarySuggestions: defineTable({
+    submittedBy: v.id("users"),
+    term: v.string(),
+    normalizedSignId: v.string(),
+    category: v.optional(v.string()),
+    description: v.optional(v.string()),
+    status: v.union(v.literal("pending"), v.literal("approved"), v.literal("rejected")),
+    reviewedBy: v.optional(v.id("users")),
+    reviewNotes: v.optional(v.string()),
+    createdAt: v.number(),
+    reviewedAt: v.optional(v.number()),
+  })
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_submittedBy_createdAt", ["submittedBy", "createdAt"])
+    .index("by_normalizedSignId_status", ["normalizedSignId", "status"]),
 });
