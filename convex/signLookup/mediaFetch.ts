@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { MediaInfo, MediaResult } from "./types";
+import { formatSignName, getLifeprintUrl, normalizeSignId } from "./helpers";
 
 function mapCachedMedia(sign: {
   mediaType?: "gif" | "video" | "image" | "none";
@@ -37,38 +38,52 @@ export const updateSignMedia = internalMutation({
     imageUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const normalizedSignId = normalizeSignId(args.signId);
     const sign = await ctx.db
       .query("savedSigns")
-      .withIndex("by_sign_id", (q) => q.eq("signId", args.signId))
+      .withIndex("by_sign_id", (q) => q.eq("signId", normalizedSignId))
       .first();
 
-    if (!sign) return;
-
-    await ctx.db.patch(sign._id, {
+    const mediaFields = {
       mediaType: args.mediaType,
       gifUrl: args.gifUrl,
       videoUrl: args.videoUrl,
       imageUrl: args.imageUrl,
-    });
+    };
+
+    if (!sign) {
+      await ctx.db.insert("savedSigns", {
+        signId: normalizedSignId,
+        name: formatSignName(normalizedSignId.replace(/-/g, " ")),
+        lifeprintUrl: getLifeprintUrl(normalizedSignId),
+        ...mediaFields,
+      });
+      return;
+    }
+
+    await ctx.db.patch(sign._id, mediaFields);
   },
 });
 
 export const fetchMediaForSignInternal = internalAction({
   args: { signId: v.string() },
   handler: async (ctx, { signId }): Promise<MediaInfo> => {
-    const sign = await ctx.runQuery(internal.signLookup.getSignByIdInternal, { signId });
-    if (!sign) return { type: "none", url: null };
+    const normalizedSignId = normalizeSignId(signId);
+    const sign = await ctx.runQuery(internal.signLookup.getSignByIdInternal, {
+      signId: normalizedSignId,
+    });
 
-    const cached = mapCachedMedia(sign);
+    const cached = sign ? mapCachedMedia(sign) : null;
     if (cached) return cached;
-    if (!sign.lifeprintUrl) return { type: "none", url: null };
+
+    const lifeprintUrl = sign?.lifeprintUrl ?? getLifeprintUrl(normalizedSignId);
 
     const media = (await ctx.runAction(internal.signLookup.scrapeMedia, {
-      lifeprintUrl: sign.lifeprintUrl,
+      lifeprintUrl,
     })) as MediaResult;
 
     await ctx.runMutation(internal.signLookup.updateSignMedia, {
-      signId,
+      signId: normalizedSignId,
       mediaType: media.type,
       gifUrl: media.type === "gif" && media.url ? media.url : undefined,
       videoUrl: media.type === "video" && media.url ? media.url : undefined,

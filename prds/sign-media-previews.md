@@ -27,6 +27,7 @@ Parents use SignTracker as a quick reference while practicing ASL with children.
 - Prefer animated GIFs from Lifeprint GIF directories, then direct videos, then static sign images.
 - Track multiple discovered candidate URLs in the action response for future UI expansion.
 - Retry records previously cached as `mediaType: "none"` so older false negatives can self-heal.
+- Generate a Lifeprint URL from the sign id when a tracked sign has no saved dictionary row, then cache the result.
 - Show an inline no-preview message when no media is found.
 - Show an inline error message when fetching media fails.
 
