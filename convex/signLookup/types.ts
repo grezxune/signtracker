@@ -11,11 +11,13 @@ export type SignResult = {
 export type MediaResult = {
   type: "gif" | "video" | "image" | "none";
   url: string | null;
+  variants?: Array<{ type: "gif" | "video" | "image"; url: string }>;
 };
 
 export type MediaInfo = {
   type: "gif" | "video" | "image" | "none";
   url: string | null;
+  variants?: Array<{ type: "gif" | "video" | "image"; url: string }>;
 };
 
 export const PREDEFINED_CATEGORIES = [

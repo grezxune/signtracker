@@ -3,7 +3,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { CategoryAccordion } from "./CategoryAccordion";
 import { SignCard } from "./SignCard";
 import { SignSearchPanel } from "./SignSearchPanel";
-import type { ConfidenceLevel, DictionaryResult, KnownSign, SignsByCategory } from "./types";
+import type { ConfidenceLevel, DictionaryResult, KnownSign, SignMediaResult, SignsByCategory } from "./types";
 
 export function SignsTab({
   childName,
@@ -45,7 +45,7 @@ export function SignsTab({
   onToggleFavorite: (args: { knownSignId: Id<"knownSigns"> }) => Promise<unknown>;
   onUpdateAlias: (args: { knownSignId: Id<"knownSigns">; alias: string | null }) => Promise<unknown>;
   onUpdateSignName: (args: { knownSignId: Id<"knownSigns">; signName: string }) => Promise<unknown>;
-  onFetchMedia: (signId: string) => Promise<{ type: string; url: string | null }>;
+  onFetchMedia: (signId: string) => Promise<SignMediaResult>;
 }) {
   return (
     <div className="space-y-4">

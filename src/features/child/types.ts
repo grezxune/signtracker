@@ -16,6 +16,12 @@ export type KnownSign = {
   imageUrl?: string;
 };
 
+export type SignMediaResult = {
+  type: "gif" | "video" | "image" | "none";
+  url: string | null;
+  variants?: Array<{ type: "gif" | "video" | "image"; url: string }>;
+};
+
 export type ChildDetails = {
   _id: Id<"children">;
   name: string;

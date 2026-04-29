@@ -12,8 +12,9 @@ function mapCachedMedia(sign: {
   if (sign.mediaType === "gif" && sign.gifUrl) return { type: "gif", url: sign.gifUrl } as MediaInfo;
   if (sign.mediaType === "video" && sign.videoUrl) return { type: "video", url: sign.videoUrl } as MediaInfo;
   if (sign.mediaType === "image" && sign.imageUrl) return { type: "image", url: sign.imageUrl } as MediaInfo;
-  if (sign.mediaType === "none") return { type: "none", url: null } as MediaInfo;
   if (sign.gifUrl) return { type: "gif", url: sign.gifUrl } as MediaInfo;
+  if (sign.videoUrl) return { type: "video", url: sign.videoUrl } as MediaInfo;
+  if (sign.imageUrl) return { type: "image", url: sign.imageUrl } as MediaInfo;
   return null;
 }
 

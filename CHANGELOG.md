@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-04-29
+
+### Added
+- Documented the Sign Media Previews scope and fallback behavior in `prds/sign-media-previews.md`.
+
+### Fixed
+- Improved Lifeprint media extraction for Show Sign by normalizing candidate URLs, ranking multiple GIF/image/video variants, and retrying previous no-media cache misses.
+- Added visible no-preview and fetch-error feedback when Show Sign cannot display inline media.
+
 ## 2026-02-20
 
 ### Fixed

@@ -5,7 +5,7 @@ import Image from "next/image";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { ConfidenceSelect } from "@/components/ui/Select";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
-import type { ConfidenceLevel, KnownSign } from "./types";
+import type { ConfidenceLevel, KnownSign, SignMediaResult } from "./types";
 
 function buildLifeprintUrl(sign: KnownSign) {
   if (sign.lifeprintUrl) return sign.lifeprintUrl;
@@ -28,7 +28,7 @@ export function SignCard({
   onToggleFavorite: (args: { knownSignId: Id<"knownSigns"> }) => Promise<unknown>;
   onUpdateAlias: (args: { knownSignId: Id<"knownSigns">; alias: string | null }) => Promise<unknown>;
   onUpdateSignName: (args: { knownSignId: Id<"knownSigns">; signName: string }) => Promise<unknown>;
-  onFetchMedia: (signId: string) => Promise<{ type: string; url: string | null }>;
+  onFetchMedia: (signId: string) => Promise<SignMediaResult>;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editAlias, setEditAlias] = useState(sign.alias || "");
@@ -37,9 +37,10 @@ export function SignCard({
   const [isDeleting, setIsDeleting] = useState(false);
   const [showMedia, setShowMedia] = useState(false);
   const [loadingMedia, setLoadingMedia] = useState(false);
-  const [media, setMedia] = useState<{ type: string; url: string | null } | null>(
+  const [media, setMedia] = useState<SignMediaResult | null>(
     sign.gifUrl ? { type: "gif", url: sign.gifUrl } : sign.videoUrl ? { type: "video", url: sign.videoUrl } : sign.imageUrl ? { type: "image", url: sign.imageUrl } : null,
   );
+  const [mediaMessage, setMediaMessage] = useState<string | null>(null);
 
   const displayName = sign.alias || sign.signName;
   const hasAlias = Boolean(sign.alias && sign.alias !== sign.signName);
@@ -60,15 +61,25 @@ export function SignCard({
 
   const handleMediaToggle = async () => {
     if (media?.url) {
+      setMediaMessage(null);
       setShowMedia((value) => !value);
       return;
     }
 
     setLoadingMedia(true);
+    setMediaMessage(null);
     try {
       const result = await onFetchMedia(sign.signId);
       setMedia(result);
-      if (result.url) setShowMedia(true);
+      if (result.url) {
+        setShowMedia(true);
+        return;
+      }
+      setShowMedia(false);
+      setMediaMessage("No inline preview was found for this sign. Use Learn Sign to view the full lesson.");
+    } catch {
+      setShowMedia(false);
+      setMediaMessage("We couldn't load a preview right now. Use Learn Sign or try again later.");
     } finally {
       setLoadingMedia(false);
     }
@@ -101,6 +112,12 @@ export function SignCard({
             ) : (
               <Image src={media.url} alt={`ASL sign for ${displayName}`} width={320} height={240} unoptimized className="mx-auto w-full max-w-[320px]" loading="lazy" />
             )}
+          </div>
+        )}
+
+        {mediaMessage && (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {mediaMessage}
           </div>
         )}
 
