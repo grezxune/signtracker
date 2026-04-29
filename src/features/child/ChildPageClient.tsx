@@ -93,6 +93,9 @@ export function ChildPageClient({ params }: { params: Promise<{ id: string }> })
   const handleAddFromDictionary = async (sign: DictionaryResult) => {
     try {
       await addKnownSign({ childId, signId: sign.signId, signName: sign.name, signCategory: sign.category });
+      void fetchMediaForSign({ signId: sign.signId }).catch((error: unknown) => {
+        console.error("Failed to warm sign media cache", error);
+      });
       setAddSuccess(`Added "${sign.name}" to ${child.name}'s signs!`);
       setSearchQuery("");
       setShowSearchResults(false);

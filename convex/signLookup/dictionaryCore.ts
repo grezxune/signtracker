@@ -127,6 +127,9 @@ export const quickAdd = action({
         lifeprintUrl: sign.lifeprintUrl,
         description: sign.description,
       });
+      await ctx.scheduler.runAfter(0, internal.signLookup.fetchMediaForSignInternal, {
+        signId: sign.signId,
+      });
       return { ...sign, category: finalCategory };
     }
 
@@ -141,6 +144,10 @@ export const quickAdd = action({
       notes: args.notes,
       lifeprintUrl: sign.lifeprintUrl,
       description: sign.description,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.signLookup.fetchMediaForSignInternal, {
+      signId: sign.signId,
     });
 
     return { ...sign, category: finalCategory };

@@ -28,6 +28,7 @@ Parents use SignTracker as a quick reference while practicing ASL with children.
 - Track multiple discovered candidate URLs in the action response for future UI expansion.
 - Retry records previously cached as `mediaType: "none"` so older false negatives can self-heal.
 - Generate a Lifeprint URL from the sign id when a tracked sign has no saved dictionary row, then cache the result.
+- Automatically schedule media discovery when users create a new sign, and warm the cache after adding an existing dictionary sign.
 - Show an inline no-preview message when no media is found.
 - Show an inline error message when fetching media fails.
 

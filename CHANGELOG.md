@@ -8,6 +8,7 @@
 ### Fixed
 - Improved Lifeprint media extraction for Show Sign by normalizing candidate URLs, ranking multiple GIF/image/video variants, and retrying previous no-media cache misses.
 - Allowed Show Sign to scrape and cache Lifeprint media even when a tracked sign does not already have a `savedSigns` dictionary row.
+- Scheduled Lifeprint media discovery when users create new signs and warmed the media cache after adding existing dictionary signs.
 - Added visible no-preview and fetch-error feedback when Show Sign cannot display inline media.
 
 ## 2026-02-20
