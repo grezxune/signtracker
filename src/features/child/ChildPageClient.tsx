@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import Link from "next/link";
@@ -17,12 +17,25 @@ import { toErrorMessage } from "./utils";
 export function ChildPageClient({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const childId = id as Id<"children">;
+  const { isAuthenticated: isConvexAuthenticated } = useConvexAuth();
 
-  const child = useQuery(api.children.get, { childId }) as ChildDetails | null | undefined;
-  const stats = useQuery(api.signs.getStats, { childId }) as ChildStats | null | undefined;
-  const signsByCategory = useQuery(api.signs.listByCategory, { childId }) as SignsByCategory | undefined;
-  const categories = useQuery(api.signLookup.getCategories, {});
-  const pendingInvites = useQuery(api.children.getPendingInvites, child?.role === "owner" ? { childId } : "skip") as PendingInvite[] | undefined;
+  const child = useQuery(api.children.get, isConvexAuthenticated ? { childId } : "skip") as
+    | ChildDetails
+    | null
+    | undefined;
+  const stats = useQuery(api.signs.getStats, isConvexAuthenticated ? { childId } : "skip") as
+    | ChildStats
+    | null
+    | undefined;
+  const signsByCategory = useQuery(
+    api.signs.listByCategory,
+    isConvexAuthenticated ? { childId } : "skip",
+  ) as SignsByCategory | undefined;
+  const categories = useQuery(api.signLookup.getCategories, isConvexAuthenticated ? {} : "skip");
+  const pendingInvites = useQuery(
+    api.children.getPendingInvites,
+    isConvexAuthenticated && child?.role === "owner" ? { childId } : "skip",
+  ) as PendingInvite[] | undefined;
 
   const updateSign = useMutation(api.signs.updateKnown);
   const removeSign = useMutation(api.signs.removeKnown);
@@ -50,7 +63,12 @@ export function ChildPageClient({ params }: { params: Promise<{ id: string }> })
   const [sharingAction, setSharingAction] = useState<{ type: "unshare"; userId: Id<"users">; email: string } | { type: "cancel_invite"; inviteId: Id<"invites">; email: string } | null>(null);
   const [isManagingSharing, setIsManagingSharing] = useState(false);
 
-  const dictionaryResults = useQuery(api.signLookup.browseDictionary, searchQuery.trim().length >= 2 ? { search: searchQuery.trim(), limit: 10, childId } : "skip") as DictionaryResult[] | undefined;
+  const dictionaryResults = useQuery(
+    api.signLookup.browseDictionary,
+    isConvexAuthenticated && searchQuery.trim().length >= 2
+      ? { search: searchQuery.trim(), limit: 10, childId }
+      : "skip",
+  ) as DictionaryResult[] | undefined;
   const hasExactMatch = dictionaryResults?.some((sign) => sign.name.toLowerCase() === searchQuery.toLowerCase().trim()) || false;
   const allCategoryOptions = categories || ["General"];
 

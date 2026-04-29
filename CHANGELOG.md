@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-02-20
+
+### Fixed
+- Eliminated Convex auth race conditions that could show empty child lists for signed-in users by gating auth-sensitive queries until Convex reports authenticated state.
+- Updated bootstrap user sync to wait for Convex auth readiness and retry transient unauthorized errors before failing.
+
+### Changed
+- Forced `/api/convex/token` to dynamic/no-cache behavior to prevent stale token responses.
+- Updated shared auth hook (`useAuthUser`) to align with Convex auth readiness rather than NextAuth state alone.
+
 ## 2026-02-11
 
 ### Added

@@ -1,6 +1,11 @@
 "use client";
 
-import { ConvexProviderWithAuth, ConvexReactClient, useMutation } from "convex/react";
+import {
+  ConvexProviderWithAuth,
+  ConvexReactClient,
+  useConvexAuth as useConvexAuthState,
+  useMutation,
+} from "convex/react";
 import { SessionProvider, useSession } from "next-auth/react";
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { api } from "../../convex/_generated/api";
@@ -25,7 +30,7 @@ function decodeJwtPayload(token: string): DecodedJwt | null {
   }
 }
 
-function useConvexAuth() {
+function useConvexTokenAuth() {
   const { status } = useSession();
   const tokenCache = useRef<{ token: string; expiresAtMs: number } | null>(null);
 
@@ -73,21 +78,64 @@ function useConvexAuth() {
   };
 }
 
+function isUnauthorizedError(error: unknown): boolean {
+  return error instanceof Error && error.message.toLowerCase().includes("unauthorized");
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function AuthBootstrap() {
   const { status } = useSession();
+  const { isLoading: isConvexAuthLoading, isAuthenticated: isConvexAuthenticated } = useConvexAuthState();
   const syncCurrentUser = useMutation(api.users.syncCurrent);
   const hasSynced = useRef(false);
 
   useEffect(() => {
-    if (status === "authenticated" && !hasSynced.current) {
-      hasSynced.current = true;
-      void syncCurrentUser({});
-    }
-
     if (status !== "authenticated") {
       hasSynced.current = false;
+      return;
     }
-  }, [status, syncCurrentUser]);
+
+    if (isConvexAuthLoading || !isConvexAuthenticated || hasSynced.current) {
+      return;
+    }
+
+    let cancelled = false;
+    hasSynced.current = true;
+
+    const runSync = async () => {
+      let lastError: unknown = null;
+
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          await syncCurrentUser({});
+          return;
+        } catch (error) {
+          lastError = error;
+          if (!isUnauthorizedError(error) || attempt === 3) {
+            break;
+          }
+          await wait(attempt * 250);
+          if (cancelled) return;
+        }
+      }
+
+      hasSynced.current = false;
+      if (!cancelled) {
+        console.error("Failed to sync current user after Convex auth", lastError);
+      }
+    };
+
+    void runSync();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isConvexAuthenticated, isConvexAuthLoading, status, syncCurrentUser]);
 
   return null;
 }
@@ -95,7 +143,7 @@ function AuthBootstrap() {
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <SessionProvider>
-      <ConvexProviderWithAuth client={convex} useAuth={useConvexAuth}>
+      <ConvexProviderWithAuth client={convex} useAuth={useConvexTokenAuth}>
         <AuthBootstrap />
         {children}
       </ConvexProviderWithAuth>

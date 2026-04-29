@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Session } from "next-auth";
 import type { ChildSummary } from "./types";
@@ -10,11 +10,18 @@ import { ChildrenGrid } from "./ChildrenGrid";
 import { HomeHeader } from "./HomeHeader";
 
 export function HomeDashboard({ session }: { session: Session }) {
-  const children = (useQuery(api.children.list, {}) || []) as ChildSummary[];
+  const { isLoading: isConvexAuthLoading, isAuthenticated: isConvexAuthenticated } = useConvexAuth();
+  const childrenResult = useQuery(api.children.list, isConvexAuthenticated ? {} : "skip") as
+    | ChildSummary[]
+    | undefined;
+  const children = childrenResult || [];
   const createChild = useMutation(api.children.create);
   const syncCurrentUser = useMutation(api.users.syncCurrent);
 
   const [showAdd, setShowAdd] = useState(false);
+  const isChildrenLoading =
+    isConvexAuthLoading || (isConvexAuthenticated && childrenResult === undefined);
+  const canManageChildren = isConvexAuthenticated && !isConvexAuthLoading;
 
   const handleCreateChild = async ({ name, birthDate }: { name: string; birthDate: string }) => {
     try {
@@ -47,7 +54,8 @@ export function HomeDashboard({ session }: { session: Session }) {
             data-testid="add-child-open"
             type="button"
             onClick={() => setShowAdd(true)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-white transition hover:bg-indigo-700"
+            disabled={!canManageChildren}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-400"
           >
             + Add Child
           </button>
@@ -60,7 +68,13 @@ export function HomeDashboard({ session }: { session: Session }) {
           />
         )}
 
-        <ChildrenGrid childCards={children} onOpenAdd={() => setShowAdd(true)} />
+        {isChildrenLoading ? (
+          <div className="rounded-xl bg-white p-10 text-center shadow-sm">
+            <div className="text-gray-600">Loading children...</div>
+          </div>
+        ) : (
+          <ChildrenGrid childCards={children} onOpenAdd={() => setShowAdd(true)} />
+        )}
       </main>
     </div>
   );

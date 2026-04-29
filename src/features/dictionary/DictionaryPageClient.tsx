@@ -1,5 +1,5 @@
 "use client";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
@@ -14,10 +14,20 @@ import { useDictionaryPageState } from "./useDictionaryPageState";
 
 export function DictionaryPageClient() {
   const state = useDictionaryPageState();
-  const children = (useQuery(api.children.list, {}) || []) as ChildSummary[];
-  const categories = useQuery(api.signLookup.getCategories, {});
-  const isSuperUser = useQuery(api.signLookup.isSuperUser, {}) === true;
-  const dictionary = useQuery(api.signLookup.browseDictionaryGlobal, { category: state.selectedCategory === "all" ? undefined : state.selectedCategory, search: state.searchQuery || undefined, limit: 100 }) as DictionaryEntry[] | undefined;
+  const { isAuthenticated: isConvexAuthenticated } = useConvexAuth();
+  const children = (useQuery(api.children.list, isConvexAuthenticated ? {} : "skip") || []) as ChildSummary[];
+  const categories = useQuery(api.signLookup.getCategories, isConvexAuthenticated ? {} : "skip");
+  const isSuperUser = useQuery(api.signLookup.isSuperUser, isConvexAuthenticated ? {} : "skip") === true;
+  const dictionary = useQuery(
+    api.signLookup.browseDictionaryGlobal,
+    isConvexAuthenticated
+      ? {
+          category: state.selectedCategory === "all" ? undefined : state.selectedCategory,
+          search: state.searchQuery || undefined,
+          limit: 100,
+        }
+      : "skip",
+  ) as DictionaryEntry[] | undefined;
   const suggestions = useQuery(api.signLookup.listDictionarySuggestions, isSuperUser ? { status: "pending", limit: 25 } : "skip") as PendingSuggestion[] | undefined;
   const addKnownSign = useMutation(api.signs.addKnown);
   const quickAddSign = useAction(api.signLookup.quickAdd);
